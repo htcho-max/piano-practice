@@ -1,0 +1,212 @@
+// 빌드본 + 가짜 MIDI 피아노로 전체 흐름 확인
+import { chromium } from 'playwright';
+import { spawn } from 'node:child_process';
+
+const server = spawn('npx', ['vite', 'preview', '--port', '4329', '--strictPort'], { stdio: 'ignore', detached: true });
+await new Promise((r) => setTimeout(r, 2500));
+const URL = 'http://localhost:4329/';
+let fails = 0;
+const ok = (c, msg) => { console.log(`${c ? 'PASS' : 'FAIL'} ${msg}`); if (!c) { fails++; process.exitCode = 1; } };
+
+// 가짜 Web MIDI: window.__midi(bytes) 로 피아노 건반을 누른 것처럼
+const FAKE_MIDI = () => {
+  const input = { id: 'fake', name: 'Roland Digital Piano', state: 'connected', onmidimessage: null };
+  const access = { inputs: new Map([['fake', input]]), outputs: new Map(), onstatechange: null, sysexEnabled: false };
+  navigator.requestMIDIAccess = async () => access;
+  window.__midi = (bytes) => input.onmidimessage && input.onmidimessage({ data: new Uint8Array(bytes), timeStamp: performance.now() });
+  window.__on = (n, v = 90) => window.__midi([0x90, n, v]);
+  window.__off = (n) => window.__midi([0x80, n, 0]);
+  window.__tap = (n) => { window.__on(n); setTimeout(() => window.__off(n), 60); };
+};
+
+const browsers = [];
+const allErrors = [];
+async function launch(vp = { width: 390, height: 844 }) {
+  const browser = await chromium.launch({ args: ['--autoplay-policy=no-user-gesture-required'] });
+  browsers.push(browser);
+  const page = await browser.newPage({ viewport: vp });
+  const errors = allErrors;
+  page.on('pageerror', (e) => errors.push(e.message));
+  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+  await page.addInitScript(FAKE_MIDI);
+  await page.goto(URL);
+  return { browser, page, errors };
+}
+const tab = (page, name) => page.locator('.tabbar').getByRole('button', { name }).click();
+const tap = (page, n) => page.evaluate((n) => window.__tap(n), n);
+const wait = (page, ms) => page.waitForTimeout(ms);
+const text = async (loc) => (await loc.textContent()) ?? '';
+
+/** 박자 맞춰: t0 기준으로 음 목록을 정확한 시각에 보냄. notes = [[midi, beat, offsetMs], …] */
+async function playTimed(page, bpm, notes) {
+  await page.waitForFunction(() => typeof window.__pianoT0 === 'number');
+  await page.evaluate(({ bpm, notes }) => {
+    const t0 = window.__pianoT0, spb = 60000 / bpm;
+    for (const [m, beat, off] of notes) {
+      const at = t0 + beat * spb + (off || 0);
+      setTimeout(() => window.__on(m), Math.max(0, at - performance.now()));
+      setTimeout(() => window.__off(m), Math.max(0, at - performance.now() + spb * 0.8));
+    }
+  }, { bpm, notes });
+}
+
+try {
+  {
+    const { browser, page, errors } = await launch();
+    // 1. 처음 화면
+    ok(await page.getByTestId('plan-learn').isVisible(), '오늘: 배울 것 카드');
+    ok((await text(page.getByTestId('plan-learn'))).includes('도 찾기'), '오늘: 1과 도 찾기부터');
+    ok((await text(page.getByTestId('top-midi'))).includes('화면 건반'), '연결 전: 화면 건반');
+    await page.screenshot({ path: 'scripts/shot-today.png', fullPage: true });
+    await page.getByTestId('connect').click();
+    await page.waitForTimeout(300);
+    ok((await text(page.getByTestId('top-midi'))).includes('연결됨'), '가짜 피아노 연결됨');
+    ok((await text(page.locator('.toast'))).includes('Roland Digital Piano'), '연결 알림');
+
+    // 2. 건반 탭: 누른 음과 코드
+    await tab(page, '건반');
+    await page.evaluate(() => { window.__on(60); window.__on(64); window.__on(67); window.__midi([0xb0, 64, 127]); });
+    await wait(page, 200);
+    ok((await text(page.getByTestId('held'))).startsWith('도(C4) 미(E4) 솔(G4)'), `누른 음 표시: ${await text(page.getByTestId('held'))}`);
+    ok((await text(page.getByTestId('chord'))) === 'C', 'C 코드');
+    ok(await page.locator('[data-testid="key-64"].down').count() === 1, '화면 건반에 눌림 표시');
+    ok((await text(page.locator('.np-sub'))).includes('페달 밟음'), '페달');
+    await page.screenshot({ path: 'scripts/shot-play.png', fullPage: true });
+    await page.evaluate(() => { window.__off(60); window.__off(64); window.__off(67); window.__on(57); window.__on(60); window.__on(64); });
+    await wait(page, 100);
+    ok((await text(page.getByTestId('chord'))) === 'Am', 'Am 코드');
+    await page.evaluate(() => { [57, 60, 64].forEach((n) => window.__off(n)); });
+    // 화면 건반 터치
+    const k = page.getByTestId('key-62');
+    const box = await k.boundingBox();
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height - 10);
+    await page.mouse.down();
+    await wait(page, 100);
+    ok((await text(page.getByTestId('held'))).includes('레'), '화면 건반 누르기');
+    await page.mouse.up();
+    await wait(page, 100);
+    ok((await text(page.getByTestId('held'))).includes('건반을 눌러'), '화면 건반 떼기');
+    await page.getByTestId('metro-toggle').click();
+    await wait(page, 1000);
+    ok(await page.locator('.dot.on').count() === 1, '메트로놈 박 표시');
+    await page.getByTestId('metro-toggle').click();
+
+    // 3. 1과 건반 찾기
+    await tab(page, '배우기');
+    await page.getByTestId('lesson-1').click();
+    ok((await text(page.getByTestId('lesson-title'))) === '건반 지도', '1과 설명');
+    await page.getByTestId('ex-l1-find').click();
+    ok((await text(page.getByTestId('question'))).includes('가운데 도'), '문제 1');
+    await tap(page, 62); await wait(page, 100); // 틀림
+    ok(await page.locator('.key.fl-bad').count() === 1, '틀린 건반 빨강');
+    for (const seq of [[60], [36, 48, 72], [41, 53], [38, 50], [43, 55], [72]]) {
+      for (const n of seq) { await tap(page, n); await wait(page, 120); }
+      await wait(page, 750);
+    }
+    ok(await page.getByTestId('result').isVisible(), '찾기 끝');
+    ok((await text(page.getByTestId('result'))).includes('틀린 건반 1번'), '틀린 횟수');
+    await page.getByRole('button', { name: '다음' }).click();
+
+    // 4. 도레미파솔 (기다려 주기)
+    ok((await text(page.getByTestId('ex-title'))) === '도레미파솔', '다음 연습으로');
+    ok(await page.locator('[data-testid="key-60"].mk-now').count() === 1, '첫 음 표시');
+    for (const n of [60, 62, 64, 65]) { await tap(page, n); await wait(page, 120); }
+    ok(await page.locator('[data-testid="step-0"][data-state="good"]').count() === 1, '맞은 칸 초록');
+    await tap(page, 66); await wait(page, 120); // 틀림
+    ok(await page.locator('[data-testid="step-4"][data-state="wrong"]').count() === 1, '틀린 칸 표시');
+    await tap(page, 67); await wait(page, 300);
+    ok((await text(page.getByTestId('score'))) === '80점', `기다려 주기 점수 ${await text(page.getByTestId('score'))}`);
+    await page.getByTestId('again').click();
+    for (const n of [60, 62, 64, 65, 67]) { await tap(page, n); await wait(page, 120); }
+    ok((await text(page.getByTestId('score'))) === '100점', '다시 하기 100점');
+    await page.screenshot({ path: 'scripts/shot-wait.png', fullPage: true });
+
+    // 5. 7과 같이 누르기 — 박자 맞춰, 양손 (♩60, 8박)
+    await page.getByRole('button', { name: /^‹/ }).click();
+    await page.getByRole('button', { name: /^‹/ }).click();
+    await page.getByTestId('lesson-7').click();
+    await page.getByTestId('ex-l7-together').click();
+    await page.getByTestId('mode-timed').click();
+    await page.getByTestId('timed-start').click();
+    await wait(page, 300);
+    ok(await page.getByTestId('countin').isVisible(), '한 마디 세기');
+    // L5:C3+R1:C4/h L1:G3+R5:G4/h | L5:C3+R3:E4/h L1:G3+R5:G4/h | L5:C3+R1:C4/w
+    await playTimed(page, 60, [[48, 0, 0], [60, 0, 30], [55, 2, -40], [67, 2, -20], [48, 4, 10], [64, 4, 140], [55, 6, 0], [67, 6, 0], [48, 8, 0], [60, 8, 20]]);
+    await page.getByTestId('result').waitFor({ timeout: 25000 });
+    const sc = Number((await text(page.getByTestId('score'))).replace(/\D/g, ''));
+    ok(sc >= 85 && sc < 100, `박자 맞춰 점수 ${sc} (늦은 음 하나)`);
+    ok((await text(page.getByTestId('result'))).includes('늦음 1'), '늦음 1개');
+    ok(/양손 \d+ms/.test(await text(page.getByTestId('result'))), '양손 어긋남 표시');
+    await page.screenshot({ path: 'scripts/shot-timed.png', fullPage: true });
+
+    // 6. 한 손만 (왼손 놓침 없이 오른손만 → 앱이 왼손)
+    await page.getByTestId('hands-R').click();
+    await page.evaluate(() => { window.__pianoT0 = undefined; });
+    await page.getByTestId('timed-start').click();
+    await playTimed(page, 60, [[60, 0, 0], [67, 2, 0], [64, 4, 0], [67, 6, 0], [60, 8, 0]]);
+    await page.getByTestId('result').waitFor({ timeout: 25000 });
+    ok((await text(page.getByTestId('score'))) === '100점', `오른손만 100점 (${await text(page.getByTestId('score'))})`);
+    ok((await text(page.getByTestId('result'))).includes('한 손 통과'), '한 손 통과 표시');
+
+    // 7. 들어 보기
+    await page.getByTestId('hands-B').click();
+    await page.getByTestId('listen').click();
+    await wait(page, 1500);
+    ok(await page.locator('.step.cur').count() === 1, '들어 보기: 칸 따라감');
+    await page.getByTestId('listen-stop').click();
+
+    // 8. 오늘·기록
+    await tab(page, '오늘');
+    await wait(page, 300);
+    ok((await text(page.getByTestId('plan-learn'))).includes('2과'), `오늘: 2과로 넘어감 (${await text(page.getByTestId('plan-learn'))})`);
+    await tab(page, '기록');
+    await wait(page, 300);
+    ok(await page.locator('[data-testid="runs"] li').count() >= 5, `기록 ${await page.locator('[data-testid="runs"] li').count()}개`);
+    await page.screenshot({ path: 'scripts/shot-log.png', fullPage: true });
+
+    // 뒤로 가기: 배우기 안쪽 → 목록
+    await tab(page, '배우기');
+    await page.getByTestId('lesson-3').click();
+    await page.getByTestId('ex-l3-joy').click();
+    await page.goBack(); await wait(page, 300);
+    ok(await page.getByTestId('lesson-title').isVisible(), '뒤로: 연습 → 레슨');
+    await page.goBack(); await wait(page, 300);
+    ok(await page.getByTestId('lesson-1').isVisible(), '뒤로: 레슨 → 목록');
+
+    ok(errors.length === 0, `콘솔 오류 없음 ${errors.join(' | ')}`);
+    await browser.close();
+  }
+  {
+    // 태블릿 가로 + MIDI 없는 브라우저
+    const { browser, page, errors } = await launch({ width: 1280, height: 800 });
+    await page.getByTestId('connect').click();
+    await tab(page, '배우기');
+    await page.getByTestId('lesson-8').click();
+    await page.getByTestId('ex-l8-joy').click();
+    await page.screenshot({ path: 'scripts/shot-tablet.png' });
+    await tab(page, '건반');
+    await page.getByRole('button', { name: '88건반 전체' }).click();
+    ok(await page.locator('.key').count() === 88, '88건반');
+    await page.screenshot({ path: 'scripts/shot-tablet-play.png' });
+    ok(errors.length === 0, `태블릿 콘솔 오류 없음 ${errors.join(' | ')}`);
+    await browser.close();
+  }
+  {
+    const browser = await chromium.launch();
+    browsers.push(browser);
+    const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+    await page.addInitScript(() => { delete Navigator.prototype.requestMIDIAccess; });
+    await page.goto(URL);
+    ok((await text(page.getByTestId('midi-status'))).includes('안 돼요'), 'MIDI 없는 브라우저 안내');
+    await browser.close();
+  }
+} catch (e) {
+  console.log('FAIL 예외', e);
+  console.log('페이지 오류:', allErrors.join(' | '));
+  fails++;
+  process.exitCode = 1;
+} finally {
+  for (const b of browsers) await b.close().catch(() => {});
+  try { process.kill(-server.pid); } catch { /* 무시 */ }
+}
+console.log(fails ? `FAIL ${fails}` : 'ALL PASS');
