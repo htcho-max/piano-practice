@@ -9,10 +9,11 @@ export type Settings = {
   fingers: boolean; // 건반 위 손가락 번호
   allNames: boolean; // 모든 흰 건반에 이름 (꺼지면 도만)
   computerKeys: boolean; // 컴퓨터 키보드로 치기 (A S D F …)
+  latencyMs: number; // 박자 채점 보정: 메트로놈이 귀에 들리는 시각이 늦으면 + (ms)
 };
 
 const KEY = 'piano-settings';
-const DEFAULT: Settings = { labels: 'solfa', appSound: 'auto', volume: 0.7, clickVolume: 0.8, fingers: true, allNames: true, computerKeys: true };
+const DEFAULT: Settings = { labels: 'solfa', appSound: 'auto', volume: 0.7, clickVolume: 0.8, fingers: true, allNames: true, computerKeys: true, latencyMs: 0 };
 
 function load(): Settings {
   try { return { ...DEFAULT, ...JSON.parse(localStorage.getItem(KEY) || '{}') }; } catch { return DEFAULT; }

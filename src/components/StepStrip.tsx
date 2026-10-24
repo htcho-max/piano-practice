@@ -10,7 +10,7 @@ const MARK: Partial<Record<StepState, string>> = { early: '◀', late: '▶', mi
  * 칠 음들을 왼쪽에서 오른쪽으로 (칸 너비 = 길이). 위 줄 오른손, 아래 줄 왼손.
  * 지금 칸은 테두리, 지난 칸은 결과 색.
  */
-export function StepStrip({ steps, cur, states }: { steps: Step[]; cur: number; states: StepState[] }) {
+export function StepStrip({ steps, cur, states, beats = 4 }: { steps: Step[]; cur: number; states: StepState[]; beats?: number }) {
   const s = useSettings();
   const box = useRef<HTMLDivElement>(null);
   const two = steps.some((st) => st.notes.some((n) => n.hand === 'L')) && steps.some((st) => st.notes.some((n) => n.hand === 'R'));
@@ -28,8 +28,8 @@ export function StepStrip({ steps, cur, states }: { steps: Step[]; cur: number; 
     <div className="strip" ref={box} data-testid="strip">
       {steps.map((st, i) => {
         const state = states[i] ?? 'todo';
-        const newBar = Math.floor(st.beat / 4 + 1e-6) !== bar || i === 0;
-        bar = Math.floor(st.beat / 4 + 1e-6);
+        const newBar = Math.floor(st.beat / beats + 1e-6) !== bar || i === 0;
+        bar = Math.floor(st.beat / beats + 1e-6);
         const r = st.notes.filter((n) => n.hand === 'R');
         const l = st.notes.filter((n) => n.hand === 'L');
         const cell = (ns: typeof r) => ns.length ? ns.map((n) => (
@@ -48,5 +48,5 @@ export function StepStrip({ steps, cur, states }: { steps: Step[]; cur: number; 
 }
 
 function durName(d: number): string {
-  return ({ 4: '온', 3: '2.', 2: '2', 1.5: '4.', 1: '4', 0.5: '8', 0.25: '16' } as Record<number, string>)[d] ?? String(d);
+  return ({ 4: '온', 3: '2.', 2: '2', 1.5: '4.', 1: '4', 0.75: '8.', 0.5: '8', 0.25: '16' } as Record<number, string>)[d] ?? String(d);
 }

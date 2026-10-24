@@ -109,6 +109,8 @@ try {
 
     // 4. 도레미파솔 (기다려 주기)
     ok((await text(page.getByTestId('ex-title'))) === '도레미파솔', '다음 연습으로');
+    await page.getByTestId('wait-hint').waitFor();
+    await wait(page, 200);
     ok(await page.locator('[data-testid="key-60"].mk-now').count() === 1, '첫 음 표시');
     for (const n of [60, 62, 64, 65]) { await tap(page, n); await wait(page, 120); }
     ok(await page.locator('[data-testid="step-0"][data-state="good"]').count() === 1, '맞은 칸 초록');
@@ -154,6 +156,66 @@ try {
     await wait(page, 1500);
     ok(await page.locator('.step.cur').count() === 1, '들어 보기: 칸 따라감');
     await page.getByTestId('listen-stop').click();
+
+
+    // 9. v0.2 — 음표 읽기 퀴즈 (9과)
+    await tab(page, '배우기');
+    await page.getByTestId('lesson-9').click();
+    await page.getByTestId('ex-l9-read').click();
+    const target = async () => Number(await page.locator('[data-testid="note-card"] .note').getAttribute('data-midi'));
+    await page.locator('[data-testid="note-card"] .note').waitFor();
+    let t = await target();
+    ok(t >= 60 && t <= 67, `퀴즈 음 ${t} (도~솔)`);
+    await tap(page, t === 60 ? 62 : 60); await wait(page, 150); // 첫 문제 틀림
+    ok(await page.locator(`[data-testid="key-${t}"].mk-now`).count() === 1, '틀리면 정답 건반 보여 줌');
+    for (let i = 0; i < 20; i++) {
+      t = await target();
+      await tap(page, t);
+      await wait(page, i === 0 ? 750 : 380);
+    }
+    await page.getByTestId('result').waitFor({ timeout: 5000 });
+    ok((await text(page.getByTestId('score'))) === '95점', `퀴즈 점수 ${await text(page.getByTestId('score'))} (19/20)`);
+    await page.getByRole('button', { name: '다음' }).click();
+
+    // 10. 악보 보고 치기 (힌트 꺼짐)
+    ok((await text(page.getByTestId('ex-title'))).includes('비행기'), '다음: 악보 보고 비행기');
+    ok(await page.getByTestId('staff').isVisible(), '악보 보기');
+    ok(await page.locator('[data-testid="staff"] .note').count() === 26, `악보 음표 ${await page.locator('[data-testid="staff"] .note').count()}개`);
+    await page.getByTestId('wait-hint').waitFor();
+    await wait(page, 200);
+    ok(await page.locator('.key.mk-now').count() === 0, '건반 힌트 꺼짐');
+    await tap(page, 60); await wait(page, 150); // 틀림 (첫 음은 미)
+    ok(await page.locator('[data-testid="key-64"].mk-now').count() === 1, '틀리면 그 칸 힌트');
+    const BI = [64, 62, 60, 62, 64, 64, 64, 62, 62, 62, 64, 67, 67, 64, 62, 60, 62, 64, 64, 64, 64, 62, 62, 64, 62, 60];
+    for (const n of BI) { await tap(page, n); await wait(page, 90); }
+    await page.getByTestId('result').waitFor({ timeout: 5000 });
+    ok((await text(page.getByTestId('score'))) === '96점', `악보 보고 기다려 주기 ${await text(page.getByTestId('score'))}`);
+    ok(await page.locator('[data-testid="staff"] .note[data-step="1"]').evaluate((el) => getComputedStyle(el).color) !== '', '악보 채점 색');
+    await page.getByTestId('view-names').click();
+    ok(await page.getByTestId('strip').isVisible(), '이름 칸 보기로 바꾸기');
+    await page.screenshot({ path: 'scripts/shot-sheet.png', fullPage: true });
+
+    // 11. 박자 보정: 늘 80ms 늦게 치면 보정 제안 → 적용 후 다시 치면 딱 맞음
+    await page.getByRole('button', { name: /^‹/ }).click();
+    await page.getByRole('button', { name: /^‹/ }).click();
+    await page.getByTestId('lesson-4').click();
+    await page.getByTestId('ex-l4-quarters').click();
+    const Q = [[60, 0], [60, 1], [60, 2], [60, 3], [60, 4], [60, 6], [60, 8], [60, 9], [60, 10], [60, 12]];
+    await page.evaluate(() => { window.__pianoT0 = undefined; });
+    await page.getByTestId('timed-start').click();
+    await playTimed(page, 70, Q.map(([m, b]) => [m, b, 80]));
+    await page.getByTestId('result').waitFor({ timeout: 25000 });
+    ok(await page.getByTestId('calibrate').isVisible(), '늘 늦음 → 보정 제안');
+    await page.getByTestId('calibrate').click();
+    const lat = await page.evaluate(() => JSON.parse(localStorage.getItem('piano-settings')).latencyMs);
+    ok(lat >= 70 && lat <= 90, `보정 ${lat}ms 저장`);
+    await page.evaluate(() => { window.__pianoT0 = undefined; });
+    await page.getByTestId('timed-start').click();
+    // 화면의 t0 는 이미 보정이 더해진 값 → 그대로 80ms 늦게 치면 딱 맞음
+    await playTimed(page, 70, Q.map(([m, b]) => [m, b, 80 - lat]));
+    await page.getByTestId('result').waitFor({ timeout: 25000 });
+    ok((await text(page.getByTestId('score'))) === '100점', `보정 뒤 ${await text(page.getByTestId('score'))}`);
+    await page.evaluate(() => { const s = JSON.parse(localStorage.getItem('piano-settings')); s.latencyMs = 0; localStorage.setItem('piano-settings', JSON.stringify(s)); });
 
     // 8. 오늘·기록
     await tab(page, '오늘');

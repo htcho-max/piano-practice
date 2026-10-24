@@ -1,6 +1,7 @@
 import 'fake-indexeddb/auto';
 import { describe, it, expect } from 'vitest';
 import { LESSONS } from '../src/lessons/lessons';
+import { findLevel } from '../src/practice/reading';
 import { totalBeats } from '../src/music/steps';
 import { todayPlan, currentLesson, passedSet } from '../src/data/progress';
 import type { Run } from '../src/data/db';
@@ -11,19 +12,42 @@ describe('레슨 데이터', () => {
     const ids = LESSONS.flatMap((l) => l.exercises.map((e) => e.id));
     expect(new Set(ids).size).toBe(ids.length);
   });
-  it('연주 연습: 마디가 꽉 차고, 손가락 번호가 도 자리와 맞음', () => {
+  it('연주 연습: 마디가 꽉 차고, 손가락 번호가 한 손 자리 안에서 앞뒤가 맞음', () => {
     for (const l of LESSONS) for (const e of l.exercises) {
       if (e.kind !== 'play') continue;
       expect(totalBeats(e.steps) % e.beats, `${e.id} 마디`).toBe(0);
-      for (const s of e.steps) for (const n of s.notes) {
-        expect(n.midi, e.id).toBeGreaterThanOrEqual(36);
-        expect(n.midi, e.id).toBeLessThanOrEqual(84);
-        if (!n.finger) continue;
-        // 오른손 도 자리 C4=1 … G4=5, 왼손 C3=5 … G3=1
-        const expectFinger = n.hand === 'R' ? { 60: 1, 62: 2, 64: 3, 65: 4, 67: 5 }[n.midi] : { 48: 5, 50: 4, 52: 3, 53: 2, 55: 1 }[n.midi];
-        expect(n.finger, `${e.id} ${n.hand}${n.midi}`).toBe(expectFinger);
+      for (const hand of ['R', 'L'] as const) {
+        const map = new Map<number, number>();
+        for (const s of e.steps) for (const n of s.notes) {
+          expect(n.midi, e.id).toBeGreaterThanOrEqual(36);
+          expect(n.midi, e.id).toBeLessThanOrEqual(84);
+          if (n.hand !== hand || !n.finger) continue;
+          const had = map.get(n.midi);
+          if (had !== undefined) expect(n.finger, `${e.id} ${hand}${n.midi} 같은 음 같은 손가락`).toBe(had);
+          map.set(n.midi, n.finger);
+        }
+        // 다섯 손가락 자리: 높은 음일수록 오른손은 큰 번호, 왼손은 작은 번호
+        const pairs = [...map.entries()].sort((a, b) => a[0] - b[0]);
+        for (let i = 1; i < pairs.length; i++) {
+          if (pairs[i][0] - pairs[i - 1][0] === 1 && pairs[i][1] === pairs[i - 1][1]) continue; // 파·파♯ 같은 손가락
+          if (hand === 'R') expect(pairs[i][1], `${e.id} 오른손 순서`).toBeGreaterThan(pairs[i - 1][1]);
+          else expect(pairs[i][1], `${e.id} 왼손 순서`).toBeLessThan(pairs[i - 1][1]);
+        }
       }
     }
+  });
+  it('도 자리 연습(1~8과)은 오른손 C4=1…G4=5, 왼손 C3=5…G3=1', () => {
+    for (const l of LESSONS.filter((x) => x.n <= 8)) for (const e of l.exercises) {
+      if (e.kind !== 'play') continue;
+      for (const s of e.steps) for (const n of s.notes) {
+        if (!n.finger) continue;
+        const f = n.hand === 'R' ? { 60: 1, 62: 2, 64: 3, 65: 4, 67: 5 }[n.midi] : { 48: 5, 50: 4, 52: 3, 53: 2, 55: 1 }[n.midi];
+        expect(n.finger, `${e.id} ${n.hand}${n.midi}`).toBe(f);
+      }
+    }
+  });
+  it('읽기 문제는 있는 단계를 가리킴', () => {
+    for (const l of LESSONS) for (const e of l.exercises) if (e.kind === 'read') expect(findLevel(e.level), e.id).toBeTruthy();
   });
   it('찾기 문제는 need 만큼 정답 건반이 있음', () => {
     for (const l of LESSONS) for (const e of l.exercises) if (e.kind === 'find') for (const q of e.questions) expect(q.accept.length).toBeGreaterThanOrEqual(q.need);

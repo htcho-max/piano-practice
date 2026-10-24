@@ -6,6 +6,15 @@ import { useBackLayer } from '../state/back';
 import { FindRunner } from '../components/FindRunner';
 import { PlayRunner } from '../components/PlayRunner';
 import { Rich } from '../components/Rich';
+import { ReadRunner } from '../components/ReadRunner';
+import { READ_LEVELS, findLevel } from '../practice/reading';
+
+function exKind(e: Exercise): string {
+  if (e.kind === 'find') return '건반 찾기';
+  if (e.kind === 'read') return '음표 읽기 퀴즈';
+  const how = e.modes.includes('timed') ? (e.modes.includes('wait') ? '기다려 주기 → 박자 맞춰' : '박자 맞춰') : '기다려 주기';
+  return e.sheet ? `악보 보고 · ${how}` : how;
+}
 
 export type LearnTarget = { lessonId: string; exId?: string; seq: number } | null;
 
@@ -18,6 +27,18 @@ export function Learn({ target }: { target: LearnTarget }) {
   useBackLayer(!!lessonId, () => { setLessonId(null); setExId(null); });
   useBackLayer(!!exId, () => setExId(null));
 
+  const [readLevel, setReadLevel] = useState<string | null>(null);
+  useBackLayer(!!readLevel, () => setReadLevel(null));
+  if (readLevel) {
+    const lv = findLevel(readLevel)!;
+    return (
+      <div className="page">
+        <div className="crumbs"><button className="link" onClick={() => setReadLevel(null)}>‹ 배우기</button></div>
+        <div className="ex-head"><h2 data-testid="ex-title">음표 읽기 · {lv.title}</h2><p className="hint">{lv.desc}</p></div>
+        <ReadRunner key={readLevel} levelId={readLevel} count={20} onDone={() => setReadLevel(null)} />
+      </div>
+    );
+  }
   const lesson = lessonId ? findLesson(lessonId) : undefined;
   if (lesson && exId) {
     const idx = lesson.exercises.findIndex((e) => e.id === exId);
@@ -30,7 +51,7 @@ export function Learn({ target }: { target: LearnTarget }) {
         <div className="page">
           <div className="crumbs"><button className="link" onClick={() => setExId(null)}>‹ {lesson.n}과 {lesson.title}</button></div>
           <div className="ex-head"><h2 data-testid="ex-title">{ex.title}</h2><p className="hint">{ex.text}</p></div>
-          {ex.kind === 'find' ? <FindRunner key={ex.id} ex={ex} lesson={lesson} onDone={onDone} /> : <PlayRunner key={ex.id} ex={ex} lesson={lesson} onDone={onDone} />}
+          {ex.kind === 'find' ? <FindRunner key={ex.id} ex={ex} lesson={lesson} onDone={onDone} /> : ex.kind === 'read' ? <ReadRunner key={ex.id} levelId={ex.level} count={ex.count} exId={ex.id} lesson={lesson} onDone={onDone} /> : <PlayRunner key={ex.id} ex={ex} lesson={lesson} onDone={onDone} />}
         </div>
       );
     }
@@ -56,7 +77,22 @@ export function Learn({ target }: { target: LearnTarget }) {
           );
         })}
       </ul>
-      <p className="hint">다음 단계(악보 읽기, 코드와 찬양 반주, 좋아하는 곡)는 차례로 추가돼요.</p>
+      <h3>음표 읽기 연습 (언제든)</h3>
+      <ul className="levels">
+        {READ_LEVELS.map((lv) => {
+          const best = bestScore(runs, `read-${lv.id}`);
+          return (
+            <li key={lv.id}>
+              <button className="ex-item" onClick={() => setReadLevel(lv.id)} data-testid={`level-${lv.id}`}>
+                <span className="ln">𝅘𝅥</span>
+                <span className="lt"><b>{lv.title}</b><small>{lv.desc}</small></span>
+                {best !== null && <span className="lp">최고 {best}</span>}
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+      <p className="hint">다음 단계(코드와 찬양 반주, 곡 연습, 좋아하는 곡)는 차례로 추가돼요.</p>
     </div>
   );
 }
@@ -79,7 +115,7 @@ function LessonView({ lesson, passed, runs, open, back }: { lesson: Lesson; pass
             <li key={e.id}>
               <button className={`ex-item${passed.has(e.id) ? ' done' : ''}`} onClick={() => open(e.id)} data-testid={`ex-${e.id}`}>
                 <span className="ln">{passed.has(e.id) ? '✓' : '▶'}</span>
-                <span className="lt"><b>{e.title}</b><small>{e.kind === 'find' ? '건반 찾기' : e.modes.includes('timed') ? (e.modes.includes('wait') ? '기다려 주기 → 박자 맞춰' : '박자 맞춰') : '기다려 주기'}</small></span>
+                <span className="lt"><b>{e.title}</b><small>{exKind(e)}</small></span>
                 {best !== null && <span className="lp">최고 {best}</span>}
               </button>
             </li>

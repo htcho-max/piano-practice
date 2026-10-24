@@ -7,20 +7,24 @@ export type FindQuestion = { text: string; accept: number[]; need: number; hint?
 
 export type Exercise =
   | { kind: 'find'; id: string; title: string; text: string; questions: FindQuestion[] }
-  | { kind: 'play'; id: string; title: string; text: string; src: string; steps: Step[]; bpm: number; beats: number; modes: Mode[] };
+  | { kind: 'read'; id: string; title: string; text: string; level: string; count: number }
+  /** sheet: 악보 보고 치기 (처음부터 악보 화면 + 건반 힌트 끔) */
+  | { kind: 'play'; id: string; title: string; text: string; src: string; steps: Step[]; bpm: number; beats: number; modes: Mode[]; sheet?: boolean };
 
 export type Lesson = { id: string; n: number; title: string; goal: string; body: string[]; tips: string[]; exercises: Exercise[] };
 
 const ALL = (pcs: number, lo = 21, hi = 108) => { const r: number[] = []; for (let m = lo; m <= hi; m++) if (m % 12 === pcs) r.push(m); return r; };
-const play = (id: string, title: string, text: string, src: string, opt: { bpm?: number; beats?: number; modes?: Mode[] } = {}): Exercise =>
-  ({ kind: 'play', id, title, text, src, steps: parseSteps(src), bpm: opt.bpm ?? 72, beats: opt.beats ?? 4, modes: opt.modes ?? ['wait', 'timed'] });
+const play = (id: string, title: string, text: string, src: string, opt: { bpm?: number; beats?: number; modes?: Mode[]; sheet?: boolean } = {}): Exercise =>
+  ({ kind: 'play', id, title, text, src, steps: parseSteps(src), bpm: opt.bpm ?? 72, beats: opt.beats ?? 4, modes: opt.modes ?? ['wait', 'timed'], sheet: opt.sheet });
+const read = (id: string, title: string, text: string, level: string, count = 20): Exercise => ({ kind: 'read', id, title, text, level, count });
 
 /* 자주 쓰는 곡 (모두 저작권이 끝난 옛 곡) */
 const BIHAENGGI_R = 'R3:E4/q R2:D4/q R1:C4/q R2:D4/q | R3:E4/q R3:E4/q R3:E4/h | R2:D4/q R2:D4/q R2:D4/h | R3:E4/q R5:G4/q R5:G4/h | R3:E4/q R2:D4/q R1:C4/q R2:D4/q | R3:E4/q R3:E4/q R3:E4/q R3:E4/q | R2:D4/q R2:D4/q R3:E4/q R2:D4/q | R1:C4/w';
 const BIHAENGGI_L = 'L3:E3/q L4:D3/q L5:C3/q L4:D3/q | L3:E3/q L3:E3/q L3:E3/h | L4:D3/q L4:D3/q L4:D3/h | L3:E3/q L1:G3/q L1:G3/h | L3:E3/q L4:D3/q L5:C3/q L4:D3/q | L3:E3/q L3:E3/q L3:E3/q L3:E3/q | L4:D3/q L4:D3/q L3:E3/q L4:D3/q | L5:C3/w';
-const BIHAENGGI_B = 'L5:C3+R3:E4/q R2:D4/q R1:C4/q R2:D4/q | L5:C3+R3:E4/q R3:E4/q R3:E4/h | L1:G3+R2:D4/q R2:D4/q R2:D4/h | L5:C3+R3:E4/q R5:G4/q R5:G4/h | L5:C3+R3:E4/q R2:D4/q R1:C4/q R2:D4/q | L5:C3+R3:E4/q R3:E4/q R3:E4/q R3:E4/q | L1:G3+R2:D4/q R2:D4/q R3:E4/q R2:D4/q | L5:C3+R1:C4/w';
+const BIHAENGGI_B = 'L5:C3=w+R3:E4/q R2:D4/q R1:C4/q R2:D4/q | L5:C3=w+R3:E4/q R3:E4/q R3:E4/h | L1:G3=w+R2:D4/q R2:D4/q R2:D4/h | L5:C3=w+R3:E4/q R5:G4/q R5:G4/h | L5:C3=w+R3:E4/q R2:D4/q R1:C4/q R2:D4/q | L5:C3=w+R3:E4/q R3:E4/q R3:E4/q R3:E4/q | L1:G3=w+R2:D4/q R2:D4/q R3:E4/q R2:D4/q | L5:C3=w+R1:C4/w';
 const JOY_R = 'R3:E4/q R3:E4/q R4:F4/q R5:G4/q | R5:G4/q R4:F4/q R3:E4/q R2:D4/q | R1:C4/q R1:C4/q R2:D4/q R3:E4/q | R3:E4/q. R2:D4/e R2:D4/h | R3:E4/q R3:E4/q R4:F4/q R5:G4/q | R5:G4/q R4:F4/q R3:E4/q R2:D4/q | R1:C4/q R1:C4/q R2:D4/q R3:E4/q | R2:D4/q. R1:C4/e R1:C4/h';
-const JOY_B = 'L5:C3+R3:E4/q R3:E4/q R4:F4/q R5:G4/q | L1:G3+R5:G4/q R4:F4/q R3:E4/q R2:D4/q | L5:C3+R1:C4/q R1:C4/q R2:D4/q R3:E4/q | L1:G3+R3:E4/q. R2:D4/e R2:D4/h | L5:C3+R3:E4/q R3:E4/q R4:F4/q R5:G4/q | L1:G3+R5:G4/q R4:F4/q R3:E4/q R2:D4/q | L5:C3+R1:C4/q R1:C4/q R2:D4/q R3:E4/q | L1:G3+R2:D4/q. R1:C4/e L5:C3+R1:C4/h';
+const JINGLE_B = 'L5:C3=w+R3:E4/q R3:E4/q R3:E4/h | L5:C3=w+R3:E4/q R3:E4/q R3:E4/h | L5:C3=w+R3:E4/q R5:G4/q R1:C4/q. R2:D4/e | L5:C3=w+R3:E4/w | L2:F3=w+R4:F4/q R4:F4/q R4:F4/q. R4:F4/e | L5:C3=w+R4:F4/q R3:E4/q R3:E4/q R3:E4/e R3:E4/e | L1:G3=w+R3:E4/q R2:D4/q R2:D4/q R3:E4/q | L1:G3=w+R2:D4/h R5:G4/h | L5:C3=w+R3:E4/q R3:E4/q R3:E4/h | L5:C3=w+R3:E4/q R3:E4/q R3:E4/h | L5:C3=w+R3:E4/q R5:G4/q R1:C4/q. R2:D4/e | L5:C3=w+R3:E4/w | L2:F3=w+R4:F4/q R4:F4/q R4:F4/q R4:F4/q | L5:C3=w+R4:F4/q R3:E4/q R3:E4/q R3:E4/e R3:E4/e | L1:G3=w+R5:G4/q R5:G4/q R4:F4/q R2:D4/q | L5:C3=w+R1:C4/w';
+const JOY_B = 'L5:C3=w+R3:E4/q R3:E4/q R4:F4/q R5:G4/q | L1:G3=w+R5:G4/q R4:F4/q R3:E4/q R2:D4/q | L5:C3=w+R1:C4/q R1:C4/q R2:D4/q R3:E4/q | L1:G3=w+R3:E4/q. R2:D4/e R2:D4/h | L5:C3=w+R3:E4/q R3:E4/q R4:F4/q R5:G4/q | L1:G3=w+R5:G4/q R4:F4/q R3:E4/q R2:D4/q | L5:C3=w+R1:C4/q R1:C4/q R2:D4/q R3:E4/q | L1:G3=h+R2:D4/q. R1:C4/e L5:C3=h+R1:C4/h';
 
 export const LESSONS: Lesson[] = [
   {
@@ -120,7 +124,7 @@ export const LESSONS: Lesson[] = [
     tips: ['한 손씩 → 양손 아주 느리게 → 템포 올리기', '왼손 긴 음은 다음 왼손 음까지 누른 채로'],
     exercises: [
       play('l7-together', '같이 누르기', '왼손 도·솔과 오른손 도·솔을 함께.', 'L5:C3+R1:C4/h L1:G3+R5:G4/h | L5:C3+R3:E4/h L1:G3+R5:G4/h | L5:C3+R1:C4/w', { bpm: 60 }),
-      play('l7-hold', '왼손 받치기', '왼손 도는 한 마디 내내 누르고, 오른손이 움직여요.', 'L5:C3+R1:C4/q R2:D4/q R3:E4/q R2:D4/q | L5:C3+R1:C4/q R3:E4/q R5:G4/h | L1:G3+R5:G4/q R4:F4/q R3:E4/q R2:D4/q | L5:C3+R1:C4/w', { bpm: 60 }),
+      play('l7-hold', '왼손 받치기', '왼손 도는 한 마디 내내 누르고, 오른손이 움직여요.', 'L5:C3=w+R1:C4/q R2:D4/q R3:E4/q R2:D4/q | L5:C3=w+R1:C4/q R3:E4/q R5:G4/h | L1:G3=w+R5:G4/q R4:F4/q R3:E4/q R2:D4/q | L5:C3=w+R1:C4/w', { bpm: 60 }),
       play('l7-bihaenggi', '양손 비행기', '마디 첫 박에 왼손 도(또는 솔)를 함께.', BIHAENGGI_B, { bpm: 66 }),
     ],
   },
@@ -133,6 +137,115 @@ export const LESSONS: Lesson[] = [
     tips: ['4마디·8마디 점4분음표에서 서두르지 않기', '처음엔 템포 50~60, 통과하면 조금씩 올리기'],
     exercises: [
       play('l8-joy', '환희의 송가 (양손)', '오른손 멜로디 + 마디마다 왼손 한 음.', JOY_B, { bpm: 60 }),
+    ],
+  },
+  {
+    id: 'l9', n: 9, title: '높은음자리표 읽기', goal: '오른손 음을 악보에서 바로 찾기',
+    body: [
+      '악보는 **줄 5개(오선)**에 음표를 그려요. 위로 갈수록 높은 음, **줄과 칸이 번갈아** 한 음씩 올라가요 (줄 → 칸 → 줄 …).',
+      '**높은음자리표(𝄞)**는 둘째 줄을 감아 돌아요. 그 줄이 **솔(G4)**이에요. 오른손은 주로 이 오선을 봐요.',
+      '**가운데 도(C4)**는 오선 아래 **짧은 덧줄** 위에 있어요. 거기서 레(아랫줄 밑 칸), 미(첫째 줄), 파(첫째 칸), 솔(둘째 줄).',
+      '외우는 법: 줄은 아래부터 **미 솔 시 레 파**, 칸은 **파 라 도 미**. 처음엔 가운데 도에서 세어 올라가도 괜찮아요.',
+    ],
+    tips: ['건반 대신 악보를 보며 치기 — 건반은 곁눈으로만', '틀리면 정답 건반이 파랗게 보여요'],
+    exercises: [
+      read('l9-read', '음표 읽기: 도~솔', '오선의 음을 보고 그 건반을 눌러요. 20문제, 약한 음이 더 자주 나와요.', 'r1'),
+      play('l9-bihaenggi', '악보 보고: 비행기', '3과에서 친 곡을 이번엔 악보만 보고. 건반 힌트는 꺼져 있어요(틀리면 보여 줘요).', BIHAENGGI_R, { bpm: 80, sheet: true }),
+      read('l9-read2', '음표 읽기: 한 옥타브', '가운데 도부터 높은 도까지. 라·시·도는 손을 조금 벌려야 하는 자리예요.', 'r2'),
+    ],
+  },
+  {
+    id: 'l10', n: 10, title: '낮은음자리표 읽기', goal: '왼손 음을 악보에서 바로 찾기',
+    body: [
+      '**낮은음자리표(𝄢)**는 두 점 사이 넷째 줄이 **파(F3)**예요. 왼손은 주로 이 오선을 봐요.',
+      '줄은 아래부터 **솔 시 레 파 라**, 칸은 **라 도 미 솔**. 높은음자리표와 한 칸씩 어긋나 있어서 처음엔 헷갈려요.',
+      '왼손 도 자리의 **낮은 도(C3)**는 둘째 칸, **솔(G3)**은 맨 윗칸. **가운데 도**는 위쪽 덧줄이에요.',
+    ],
+    tips: ['높은음자리표 읽는 버릇으로 한 칸 틀리기 쉬워요 — 파 줄(두 점)을 기준으로', '읽기 → 손 → 소리 순서로 천천히'],
+    exercises: [
+      read('l10-read', '음표 읽기: 낮은 도~솔', '낮은음자리표 도 자리 다섯 음.', 'r3'),
+      play('l10-five', '악보 보고: 왼손 5-4-3-2-1', '5과의 왼손 연습을 악보로.', 'L5:C3/q L4:D3/q L3:E3/q L2:F3/q | L1:G3/q L2:F3/q L3:E3/q L4:D3/q | L5:C3/q L3:E3/q L1:G3/q L3:E3/q | L5:C3/w', { bpm: 66, sheet: true }),
+      play('l10-bihaenggi', '악보 보고: 왼손 비행기', '낮은음자리표로 쓴 비행기.', BIHAENGGI_L, { bpm: 72, sheet: true }),
+      read('l10-read2', '음표 읽기: 낮은 도~가운데 도', '낮은음자리표 한 옥타브.', 'r4'),
+    ],
+  },
+  {
+    id: 'l11', n: 11, title: '큰보표', goal: '두 오선을 한눈에 — 양손 악보 읽기',
+    body: [
+      '피아노 악보는 높은음자리표와 낮은음자리표를 **묶은 큰보표**예요. 위는 오른손, 아래는 왼손.',
+      '**같은 세로줄에 있는 음은 같이** 눌러요. 아래 오선에 긴 음(온음표)이 있으면 위에서 음이 바뀌는 동안 계속 누르고 있어요.',
+      '가운데 도는 두 오선 **사이**에 있어서 위 오선 아래 덧줄에도, 아래 오선 위 덧줄에도 쓸 수 있어요.',
+    ],
+    tips: ['한 마디씩: 먼저 왼손(아래) 첫 음을 확인하고 오른손 읽기', '마디선(세로줄) 단위로 눈을 옮기기'],
+    exercises: [
+      read('l11-read', '음표 읽기: 큰보표', '위아래 오선을 섞어서. 어느 오선인지 먼저 보고 읽어요.', 'r5'),
+      play('l11-hold', '악보 보고: 왼손 받치기', '7과의 연습을 큰보표로. 왼손 온음표는 마디 끝까지.', 'L5:C3=w+R1:C4/q R2:D4/q R3:E4/q R2:D4/q | L5:C3=w+R1:C4/q R3:E4/q R5:G4/h | L1:G3=w+R5:G4/q R4:F4/q R3:E4/q R2:D4/q | L5:C3=w+R1:C4/w', { bpm: 60, sheet: true }),
+      play('l11-joy', '악보 보고: 환희의 송가 (양손)', '8과의 곡을 이번엔 악보만 보며.', JOY_B, { bpm: 60, sheet: true }),
+    ],
+  },
+  {
+    id: 'l12', n: 12, title: '점음표와 3박자', goal: '점2분음표·3/4 박자 읽고 치기',
+    body: [
+      '음표 옆 **점은 원래 길이의 반을 더해요**. 점2분음표 = 2 + 1 = **3박**, 점4분음표 = 1 + ½ = **1박 반**.',
+      '**3/4 박자**는 한 마디에 3박. "하나 둘 셋"으로 세고, 첫 박을 조금 무겁게 — 왈츠 느낌이에요. 찬양에도 3박자 곡이 많아요.',
+      '쉼표도 길이가 있어요: 4분쉼표(1박, 번개 모양), 2분쉼표(2박, 셋째 줄 위 모자), 온쉼표(한 마디, 넷째 줄에 매달림).',
+    ],
+    tips: ['점2분음표는 세 박을 다 세고 떼기', '3박자에서 셋째 박이 짧아지지 않게'],
+    exercises: [
+      play('l12-rhythm', '악보 보고: 리듬 읽기', '도·미·솔로 점음표와 쉼표 읽기 (4/4).', 'R1:C4/h. R3:E4/q | R5:G4/q r/q R5:G4/h | R3:E4/q. R2:D4/e R1:C4/h | R1:C4/q r/q r/h | R3:E4/h. r/q | R1:C4/w', { bpm: 66, sheet: true, modes: ['timed'] }),
+      play('l12-waltz', '악보 보고: 첫 왈츠 (3/4)', '오른손 멜로디, 왼손은 마디 첫 박에 점2분음표.', 'L5:C3=h.+R1:C4/q R3:E4/q R5:G4/q | L5:C3=h.+R5:G4/h. | L1:G3=h.+R4:F4/q R3:E4/q R2:D4/q | L5:C3=h.+R3:E4/h. | L1:G3=h.+R2:D4/q R4:F4/q R3:E4/q | L1:G3=h.+R2:D4/q R1:C4/q R2:D4/q | L5:C3=h.+R1:C4/h. | L5:C3=h.+R1:C4/h.', { bpm: 90, beats: 3, sheet: true }),
+    ],
+  },
+  {
+    id: 'l13', n: 13, title: '새 손 자리: 솔 자리', goal: '손을 옮겨 다른 다섯 음 치기',
+    body: [
+      '손은 도 자리에만 있지 않아요. 오른손 엄지를 **솔(G4)**에 두면 **솔 라 시 도 레**를 1~5번이 맡아요. 왼손은 새끼를 **낮은 솔(G2)**에.',
+      '곡이 시작하기 전에 **첫 음과 손 자리**를 먼저 확인하는 버릇을 들이세요. 악보 첫 음의 손가락 번호가 힌트예요.',
+    ],
+    tips: ['자리를 옮길 때는 손 모양을 그대로 들어서 옮기기', '오른손 엄지 = 솔, 새끼 = 레'],
+    exercises: [
+      read('l13-read', '음표 읽기: 솔 자리', '오른손 솔~레, 왼손 낮은 솔~레.', 'r6'),
+      play('l13-five', '솔 자리 1-2-3-4-5', '오른손 엄지를 솔에.', 'R1:G4/q R2:A4/q R3:B4/q R4:C5/q | R5:D5/q R4:C5/q R3:B4/q R2:A4/q | R1:G4/q R3:B4/q R5:D5/q R3:B4/q | R1:G4/w', { bpm: 66, sheet: true }),
+      play('l13-nabi', '악보 보고: 나비야', '솔 자리로 옮겨 친 나비야. 엄지는 솔.', 'R5:D5/q R3:B4/q R3:B4/h | R4:C5/q R2:A4/q R2:A4/h | R1:G4/q R2:A4/q R3:B4/q R4:C5/q | R5:D5/q R5:D5/q R5:D5/h | R5:D5/q R3:B4/q R3:B4/h | R4:C5/q R2:A4/q R2:A4/h | R1:G4/q R3:B4/q R5:D5/q R5:D5/q | R1:G4/w', { bpm: 80, sheet: true }),
+      play('l13-left', '왼손 솔 자리', '왼손 새끼를 낮은 솔(G2)에.', 'L5:G2/q L4:A2/q L3:B2/q L2:C3/q | L1:D3/q L2:C3/q L3:B2/q L4:A2/q | L5:G2/q L3:B2/q L1:D3/q L3:B2/q | L5:G2/w', { bpm: 66, sheet: true }),
+    ],
+  },
+  {
+    id: 'l14', n: 14, title: '샵과 플랫', goal: '검은 건반 이름 알고 악보에서 읽기',
+    body: [
+      '**샵(♯)**은 반음 올림 — 바로 오른쪽 건반, **플랫(♭)**은 반음 내림 — 바로 왼쪽 건반이에요. 그래서 도♯과 레♭은 **같은 검은 건반**이에요.',
+      '임시표는 **그 마디 끝까지** 효력이 있어요. 마디선을 지나면 다시 원래 음. **제자리표(♮)**는 올림·내림을 취소해요.',
+      '**레 자리**(레 미 파♯ 솔 라)를 쳐 봐요. 셋째 손가락이 검은 건반 파♯에 올라가요. 손을 조금 앞으로(건반 안쪽으로) 넣으면 편해요.',
+    ],
+    tips: ['검은 건반은 손가락 끝을 세워서', '♯이 붙은 음은 마디 안에서 계속 ♯'],
+    exercises: [
+      read('l14-read', '음표 읽기: 샵·플랫', '같은 건반이 두 이름(♯·♭)으로 나와요.', 'r7'),
+      play('l14-dpos', '레 자리 1-2-3-4-5', '레(D4)에 엄지, 셋째 손가락은 파♯.', 'R1:D4/q R2:E4/q R3:F#4/q R4:G4/q | R5:A4/q R4:G4/q R3:F#4/q R2:E4/q | R1:D4/q R3:F#4/q R5:A4/q R3:F#4/q | R1:D4/w', { bpm: 66, sheet: true }),
+      play('l14-echo', '악보 보고: 파와 파♯', '같은 마디 안 ♯과 제자리표에 주의.', 'R1:D4/q R3:F#4/q R3:F4/q R2:E4/q | R1:D4/h R5:A4/h | R4:G4/q R3:F#4/q R2:E4/q R3:F#4/q | R1:D4/w', { bpm: 60, sheet: true }),
+    ],
+  },
+  {
+    id: 'l15', n: 15, title: '건너뛰기와 첫 화음', goal: '음 사이 간격을 보고 손 모양 잡기',
+    body: [
+      '악보에서 **줄 → 바로 위 칸**은 이웃 건반(2도), **줄 → 다음 줄**은 하나 건너뛰기(3도), 줄 → 줄 → 줄은 다섯 번째 건반(5도)이에요.',
+      '음 이름을 하나하나 읽지 않아도 **모양(간격)**만 보고 손가락을 정할 수 있어요. 빨리 읽는 사람들의 비법이에요.',
+      '**도·미·솔**을 한꺼번에 누르면 **C 코드(화음)**. 악보에서는 음표 머리 세 개가 눈사람처럼 쌓여 있어요 (1·3·5번 손가락).',
+    ],
+    tips: ['세 음 화음은 세 손가락이 동시에 닿게', '손목을 떨어뜨리듯 무게로 누르기'],
+    exercises: [
+      play('l15-steps', '악보 보고: 이웃과 건너뛰기', '2도(이웃)와 3도(건너뛰기)를 섞어서.', 'R1:C4/q R2:D4/q R3:E4/q R1:C4/q | R3:E4/q R5:G4/q R3:E4/h | R2:D4/q R4:F4/q R3:E4/q R1:C4/q | R2:D4/q R5:G4/q R1:C4/h', { bpm: 72, sheet: true }),
+      play('l15-chord', '악보 보고: 첫 화음', '오른손 세 음을 한꺼번에: 도·미·솔(C 화음)과 레·솔 / 레·파·솔(G 화음 느낌), 왼손은 도·솔.', 'L5:C3=h+R1:C4+R3:E4+R5:G4/h L1:G3=h+R2:D4+R5:G4/h | L5:C3=h+R1:C4+R3:E4+R5:G4/h L1:G3=h+R2:D4+R4:F4+R5:G4/h | L5:C3=w+R1:C4+R3:E4+R5:G4/w', { bpm: 60, sheet: true }),
+    ],
+  },
+  {
+    id: 'l16', n: 16, title: '악보 보고 양손 곡', goal: '처음 보는 곡을 악보로 끝까지',
+    body: [
+      '지금까지 배운 것을 다 써요: 큰보표, 점음표, 온음표 받치기, 손 자리. 왼손은 마디마다 한 음(도·파·솔)을 길게 눌러요.',
+      '처음 보는 악보는 **① 박자표와 첫 음 손 자리 → ② 한 손씩 기다려 주기 → ③ 양손 느리게 → ④ 박자 맞춰** 순서로.',
+    ],
+    tips: ['8분음표 두 개(♫)는 한 박을 반씩', '왼손 파(F3)는 2번 손가락'],
+    exercises: [
+      play('l16-jingle', '악보 보고: 징글벨', '후렴 16마디. 왼손은 도(5)·파(2)·솔(1).', JINGLE_B, { bpm: 92, sheet: true }),
     ],
   },
 ];

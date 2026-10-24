@@ -12,8 +12,10 @@ export type Flash = 'good' | 'bad';
  * 화면 건반. 눌린 건반(피아노·화면 모두), 칠 건반(손 색 + 손가락 번호), 맞음/틀림 반짝임을 보여 줌.
  * 터치하면 그 음을 누른 것으로 (피아노가 없을 때).
  */
-export function Keyboard({ lo, hi, marks, flash, interactive = true, compact = false }: {
+export function Keyboard({ lo, hi, marks, flash, interactive = true, compact = false, names }: {
   lo: number; hi: number; marks?: Map<number, KeyMark>; flash?: Map<number, Flash>; interactive?: boolean; compact?: boolean;
+  /** 건반 이름: 설정대로(기본) / 도만 / 없음 */
+  names?: 'c' | 'none';
 }) {
   const held = useHeld();
   const s = useSettings();
@@ -58,12 +60,13 @@ export function Keyboard({ lo, hi, marks, flash, interactive = true, compact = f
     ].filter(Boolean).join(' ');
   };
   const nameOf = (m: number) => {
-    if (s.allNames || pc(m) === 0) return s.labels === 'solfa' ? label(m, 'solfa') : noteName(m);
+    if (names === 'none') return '';
+    if ((s.allNames && names !== 'c') || pc(m) === 0) return s.labels === 'solfa' ? label(m, 'solfa') : noteName(m);
     return '';
   };
 
   return (
-    <div className={`keyboard${compact ? ' compact' : ''}`} onPointerUp={up} onPointerCancel={up} onPointerLeave={up} onContextMenu={(e) => e.preventDefault()} data-testid="keyboard">
+    <div className={`keyboard${compact ? ' compact' : ''}`} style={{ minWidth: `${whites.length * (compact ? 17 : 26)}px` }} onPointerUp={up} onPointerCancel={up} onPointerLeave={up} onContextMenu={(e) => e.preventDefault()} data-testid="keyboard">
       {whites.map((m, i) => {
         const mk = marks?.get(m);
         return (

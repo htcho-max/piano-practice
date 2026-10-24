@@ -137,7 +137,7 @@ h2 { margin: 0; font-size: 20px; }
 /* 건반 */
 .kb-scroll { overflow-x: auto; padding-bottom: 4px; }
 .keyboard { position: relative; height: clamp(150px, 26vw, 230px); min-width: 100%; user-select: none; -webkit-user-select: none; touch-action: none; }
-.keyboard.compact { height: clamp(110px, 16vw, 170px); min-width: 900px; }
+.keyboard.compact { height: clamp(110px, 16vw, 170px); }
 .key { position: absolute; top: 0; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; cursor: pointer; transition: background 60ms; }
 .key.white { height: 100%; background: #fbfaf7; border: 1px solid #b9b3a5; border-radius: 0 0 8px 8px; padding-bottom: 8px; z-index: 1; color: #6b6f76; }
 .key.black { height: 60%; background: #23262c; border-radius: 0 0 6px 6px; z-index: 2; padding-bottom: 6px; box-shadow: inset 0 -4px 0 #000; }
@@ -192,3 +192,21 @@ h2 { margin: 0; font-size: 20px; }
 .tabbar .tab.active { color: var(--accent); font-weight: 700; }
 .tab-icon { font-size: 20px; line-height: 1; }
 .score-big { white-space: nowrap; }
+
+/* 악보 */
+.staff-box { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 4px 0; color: var(--text); }
+.staff-svg { display: block; }
+.staff-line { stroke: var(--text); stroke-width: 1; opacity: .55; }
+.ledger { stroke: currentColor; stroke-width: 1.2; }
+.bar-line { stroke: var(--text); stroke-width: 1; opacity: .7; }
+.bar-line.end { stroke-width: 3; opacity: .8; }
+.brace { fill: none; stroke: var(--text); stroke-width: 2; opacity: .6; }
+.stem { stroke: currentColor; stroke-width: 1.2; }
+.fingering { font-size: 11px; font-weight: 700; fill: var(--muted); }
+.note-card .staff-box { display: flex; justify-content: center; border: none; background: transparent; }
+.note-card svg { width: min(100%, 210px); height: auto; }
+.view-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.view-bar .segmented { flex: 0 1 220px; }
+.calib .link { color: var(--accent); font-weight: 700; }
+.read-q { align-items: stretch; }
+.levels { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }

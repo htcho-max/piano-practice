@@ -8,7 +8,7 @@ export type Run = {
   lessonId: string;
   date: string; // YYYY-MM-DD (기기 시간)
   ts: number;
-  mode: Mode | 'find';
+  mode: Mode | 'find' | 'read';
   hands: 'B' | 'R' | 'L';
   bpm: number | null;
   score: number;

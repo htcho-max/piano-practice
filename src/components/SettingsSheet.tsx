@@ -28,6 +28,10 @@ export function SettingsSheet({ onClose }: { onClose: () => void }) {
         </div>
         <label className="row-setting">앱 소리 크기<input type="range" min={0} max={1} step={0.05} value={s.volume} onChange={(e) => { setSettings({ volume: Number(e.target.value) }); piano.setVolume(Number(e.target.value)); }} onPointerUp={async () => { await resumeAudio(); piano.noteOn(60, 80); setTimeout(() => piano.noteOff(60), 400); }} /></label>
         <label className="row-setting">메트로놈 크기<input type="range" min={0} max={1} step={0.05} value={s.clickVolume} onChange={(e) => setSettings({ clickVolume: Number(e.target.value) })} /></label>
+        <div className="row-setting col"><span>박자 채점 보정 <b>{s.latencyMs > 0 ? '+' : ''}{s.latencyMs}ms</b></span>
+          <input type="range" min={-250} max={250} step={5} value={s.latencyMs} onChange={(e) => setSettings({ latencyMs: Number(e.target.value) })} aria-label="박자 채점 보정" />
+          <span className="hint">박자 맞춰에서 정확히 쳤는데도 늘 &quot;늦음&quot;이면 + 쪽으로, 늘 &quot;빠름&quot;이면 − 쪽으로. 블루투스 이어폰은 지연이 커요. 결과 화면에서 자동으로 맞춰 줄 수도 있어요.</span>
+        </div>
         <label className="row-setting"><input type="checkbox" checked={s.computerKeys} onChange={(e) => setSettings({ computerKeys: e.target.checked })} />컴퓨터 키보드로 치기</label>
         <p className="hint">피아노: {m.status === 'ready' ? (m.devices.length ? m.devices.join(', ') : '연결된 기기 없음') : m.status === 'unsupported' ? 'Web MIDI 미지원 브라우저' : '연결 전'}</p>
         <p className="muted small">버전 {__APP_VERSION__}</p>

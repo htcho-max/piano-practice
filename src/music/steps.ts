@@ -1,7 +1,8 @@
 import { parseNote } from './notes';
 
 export type Hand = 'R' | 'L';
-export type PNote = { midi: number; hand: Hand; finger?: number };
+/** spell: 검은 건반을 ♯/♭ 중 무엇으로 적을지, len: 칸 길이와 다른 음 길이(왼손이 길게 누를 때 등) */
+export type PNote = { midi: number; hand: Hand; finger?: number; spell?: 'sharp' | 'flat'; len?: number };
 /** 한 번에 누르는 음들 (빈 notes = 쉼표). beat = 시작 박(0부터), dur = 박 수 */
 export type Step = { beat: number; dur: number; notes: PNote[] };
 
@@ -12,6 +13,7 @@ const DUR: Record<string, number> = { w: 4, h: 2, q: 1, e: 0.5, s: 0.25 };
  *   "R1:C4/q R2:D4/q L5:C3+R3:E4/h r/q"
  *   손(R/L) + 손가락(1~5, 생략 가능) + ':' + 음, 동시에 누르는 음은 '+', '/' 뒤는 길이 (w h q e s, 점은 '.')
  *   'r/q' = 쉼표, '|' 는 마디 구분(읽기 쉽게, 무시)
+ *   음 뒤 '=길이' 는 그 음만 따로 길게: 'L5:C3=w+R3:E4/q' (왼손 온음표, 다음 칸은 4분 뒤)
  */
 export function parseSteps(src: string): Step[] {
   const steps: Step[] = [];
@@ -28,9 +30,13 @@ export function parseSteps(src: string): Step[] {
     const notes: PNote[] = [];
     if (body !== 'r') {
       for (const part of body.split('+')) {
-        const m = /^([RL])([1-5]?):(.+)$/.exec(part);
+        const m = /^([RL])([1-5]?):([^=]+)(?:=([whqes]\.?))?$/.exec(part);
         if (!m) throw new Error(`음을 읽을 수 없어요: ${part}`);
-        notes.push({ hand: m[1] as Hand, finger: m[2] ? Number(m[2]) : undefined, midi: parseNote(m[3]) });
+        const n: PNote = { hand: m[1] as Hand, finger: m[2] ? Number(m[2]) : undefined, midi: parseNote(m[3]) };
+        if (/[#♯]/.test(m[3])) n.spell = 'sharp';
+        else if (/[b♭]\d/.test(m[3])) n.spell = 'flat';
+        if (m[4]) n.len = DUR[m[4][0]] * (m[4].endsWith('.') ? 1.5 : 1);
+        notes.push(n);
       }
     }
     steps.push({ beat, dur, notes });

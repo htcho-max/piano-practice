@@ -40,6 +40,12 @@ export function todayPlan(runs: Run[]): PlanItem[] {
   if (lesson.n > 1) items.push({ key: 'warm', label: '손 풀기', why: lesson.n >= 5 ? '양손 다섯 손가락' : '오른손 다섯 손가락', minutes: 3, exId: warm });
   const next = nextExercise(lesson, passed);
   items.push({ key: 'learn', label: `${lesson.n}과 ${lesson.title}`, why: next.title, minutes: lesson.n === 1 ? 10 : 15, exId: next.id });
+  // 9과부터: 악보 읽기 3분 (지금 레슨까지의 읽기 퀴즈 중 가장 최근 것, 지금 레슨 퀴즈가 '새로 배우기'면 그 앞 것)
+  if (lesson.n >= 9) {
+    const reads = LESSONS.filter((l) => l.n <= lesson.n).flatMap((l) => l.exercises).filter((e) => e.kind === 'read' && e.id !== next.id);
+    const pick = reads[reads.length - 1];
+    if (pick) items.push({ key: 'read', label: '음표 읽기', why: pick.title.replace('음표 읽기: ', ''), minutes: 3, exId: pick.id });
+  }
   // 다시 하기: 통과한 '연주' 연습 중 최고 점수가 가장 낮은 것
   const played = LESSONS.flatMap((l) => l.exercises).filter((e) => e.kind === 'play' && passed.has(e.id) && e.id !== warm && e.id !== next.id);
   if (played.length) {

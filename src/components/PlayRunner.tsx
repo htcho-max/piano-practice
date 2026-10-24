@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Keyboard, type KeyMark } from './Keyboard';
 import { StepStrip, type StepState } from './StepStrip';
+import { Staff } from './Staff';
 import { useFlash } from './useFlash';
 import { onInput } from '../midi/input';
 import { metronome, perfToAudio } from '../audio/metronome';
@@ -12,13 +13,15 @@ import { fitRange } from '../music/notes';
 import type { Exercise, Lesson, Mode } from '../lessons/lessons';
 import { addRun } from '../data/db';
 import { localDate } from '../data/dates';
-import { useSettings } from '../state/settings';
+import { useSettings, setSettings } from '../state/settings';
 
 type PlayEx = Extract<Exercise, { kind: 'play' }>;
 type Phase = 'ready' | 'countin' | 'playing' | 'listening' | 'result';
 type Hands = 'B' | Hand;
 
 const bpmKey = (id: string) => `piano-bpm:${id}`;
+function loadPref(k: string, d: string): string { try { return localStorage.getItem(k) ?? d; } catch { return d; } }
+function savePref(k: string, v: string) { try { localStorage.setItem(k, v); } catch { /* 무시 */ } }
 function loadBpm(ex: PlayEx): number {
   try { const v = Number(localStorage.getItem(bpmKey(ex.id))); return v >= 30 && v <= 200 ? v : ex.bpm; } catch { return ex.bpm; }
 }
@@ -37,6 +40,11 @@ export function PlayRunner({ ex, lesson, onDone }: { ex: PlayEx; lesson: Lesson;
   const [result, setResult] = useState<WaitResult | TimedResult | null>(null);
   const [errors, setErrors] = useState(0);
   const [flash, doFlash] = useFlash();
+  // 보기: 악보 / 이름 칸, 건반 힌트(칠 건반 색칠) — 연습마다 기억
+  const [view, setViewState] = useState<'staff' | 'names'>(() => loadPref(`piano-view:${ex.id}`, ex.sheet ? 'staff' : 'names') as 'staff' | 'names');
+  const [hints, setHintsState] = useState<boolean>(() => loadPref(`piano-hints:${ex.id}`, ex.sheet ? 'off' : 'on') === 'on');
+  const setView = (v: 'staff' | 'names') => { setViewState(v); savePref(`piano-view:${ex.id}`, v); };
+  const setHints = (v: boolean) => { setHintsState(v); savePref(`piano-hints:${ex.id}`, v ? 'on' : 'off'); };
 
   const steps: Step[] = useMemo(() => (hands === 'B' ? ex.steps : onlyHand(ex.steps, hands)), [ex, hands]);
   const range = useMemo(() => fitRange(allMidis(ex.steps), 15), [ex]);
@@ -89,7 +97,7 @@ export function PlayRunner({ ex, lesson, onDone }: { ex: PlayEx; lesson: Lesson;
     metronome.volume = settings.clickVolume;
     const first = await metronome.start({ bpm, beats: ex.beats });
     const spb = 60000 / bpm;
-    const t0 = first + ex.beats * spb;
+    const t0 = first + ex.beats * spb + settings.latencyMs; // 기기 지연 보정 (설정)
     const g = new TimedGrader(steps, bpm, t0);
     timed.current = g; wait.current = null;
     (window as unknown as { __pianoT0?: number }).__pianoT0 = t0; // 스모크 시험용
@@ -167,11 +175,13 @@ export function PlayRunner({ ex, lesson, onDone }: { ex: PlayEx; lesson: Lesson;
   // 건반 표시: 지금 칸(진하게) + 다음 칸(옅게)
   const showSteps = phase === 'listening' ? ex.steps : steps;
   const marks = new Map<number, KeyMark>();
+  // 힌트를 꺼도: 들어 보기 중이거나, 기다려 주기에서 지금 칸을 한 번 틀리면 보여 줌
+  const showHints = hints || phase === 'listening' || (mode === 'wait' && cur >= 0 && (wait.current?.errorsPerStep[cur] ?? 0) > 0);
   const nextIdx = nextNonRest(showSteps, cur + 1);
-  if (nextIdx >= 0 && phase !== 'result') showSteps[nextIdx].notes.forEach((n) => marks.set(n.midi, { hand: n.hand, finger: n.finger, kind: 'soon' }));
+  if (showHints && nextIdx >= 0 && phase !== 'result') showSteps[nextIdx].notes.forEach((n) => marks.set(n.midi, { hand: n.hand, finger: n.finger, kind: 'soon' }));
   const curStep = cur >= 0 ? showSteps[cur] : undefined;
-  if (curStep && phase !== 'result') curStep.notes.forEach((n) => marks.set(n.midi, { hand: n.hand, finger: n.finger, kind: hitNow.includes(n.midi) && mode === 'wait' ? 'ok' : 'now' }));
-  if (phase === 'ready' && mode === 'timed') { const f = nextNonRest(steps, 0); if (f >= 0) steps[f].notes.forEach((n) => marks.set(n.midi, { hand: n.hand, finger: n.finger, kind: 'now' })); }
+  if (curStep && phase !== 'result') curStep.notes.forEach((n) => { const ok = hitNow.includes(n.midi) && mode === 'wait'; if (showHints || ok) marks.set(n.midi, { hand: n.hand, finger: n.finger, kind: ok ? 'ok' : 'now' }); });
+  if (showHints && phase === 'ready' && mode === 'timed') { const f = nextNonRest(steps, 0); if (f >= 0) steps[f].notes.forEach((n) => marks.set(n.midi, { hand: n.hand, finger: n.finger, kind: 'now' })); }
 
   const timedLike = mode === 'timed';
   const running = phase === 'countin' || (phase === 'playing' && timedLike);
@@ -214,8 +224,17 @@ export function PlayRunner({ ex, lesson, onDone }: { ex: PlayEx; lesson: Lesson;
 
       {count !== null && <div className="countin" data-testid="countin">{count}</div>}
 
-      <StepStrip steps={showSteps} cur={cur} states={phase === 'listening' ? [] : states} />
-      <div className="kb-scroll"><Keyboard lo={range[0]} hi={range[1]} marks={marks} flash={flash} /></div>
+      <div className="view-bar">
+        <div className="segmented small" role="group" aria-label="보기">
+          <button className={view === 'staff' ? 'on' : ''} onClick={() => setView('staff')} data-testid="view-staff">악보</button>
+          <button className={view === 'names' ? 'on' : ''} onClick={() => setView('names')} data-testid="view-names">이름 칸</button>
+        </div>
+        <label className="row-setting small"><input type="checkbox" checked={hints} onChange={(e) => setHints(e.target.checked)} data-testid="hints" />건반 힌트</label>
+      </div>
+      {view === 'staff'
+        ? <Staff steps={showSteps} beats={ex.beats} mode={used.length === 1 ? (used[0] === 'R' ? 'treble' : 'bass') : 'grand'} cur={cur} states={phase === 'listening' ? [] : states} fingers={settings.fingers && hints} />
+        : <StepStrip steps={showSteps} cur={cur} states={phase === 'listening' ? [] : states} beats={ex.beats} />}
+      <div className="kb-scroll"><Keyboard lo={range[0]} hi={range[1]} marks={marks} flash={flash} names={hints ? undefined : 'c'} /></div>
 
       {result && phase === 'result' && <ResultCard r={result} hands={hands} needTimed={ex.modes.includes('timed')} onAgain={() => (mode === 'wait' ? startWait() : startTimed())} onTimed={ex.modes.includes('timed') && mode === 'wait' ? () => setMode('timed') : undefined} onDone={onDone} />}
     </div>
@@ -264,6 +283,7 @@ function ResultCard({ r, hands, needTimed, onAgain, onTimed, onDone }: { r: Wait
           <span className="muted small">평균 어긋남 {r.meanAbsMs}ms{r.handGapMs !== null ? ` · 양손 ${r.handGapMs}ms` : ''}</span>
         </div>
       )}
+      {r.mode === 'timed' && <Calibrate r={r} />}
       {r.mode === 'wait' && <div className="muted small">걸린 시간 {Math.round(r.seconds)}초 · 틀린 건반 {r.errors}번</div>}
       {hands !== 'B' && pass && <p className="hint">한 손이 되면 양손으로 해 보세요. 통과는 양손으로 칠 때 기록돼요.</p>}
       <div className="row">
@@ -272,5 +292,20 @@ function ResultCard({ r, hands, needTimed, onAgain, onTimed, onDone }: { r: Wait
         {onDone && (!onTimed || !pass) && <button className={pass ? 'primary' : 'secondary'} onClick={onDone}>다음</button>}
       </div>
     </div>
+  );
+}
+
+/** 늘 한쪽으로 쏠리면 기기 지연일 수 있음 → 보정 제안 */
+function Calibrate({ r }: { r: TimedResult }) {
+  const s = useSettings();
+  const [done, setDone] = useState(false);
+  const hits = r.good + r.early + r.late;
+  if (hits < 4 || Math.abs(r.meanMs) < 45 || r.meanAbsMs - Math.abs(r.meanMs) > 40) return null; // 고르게 쏠렸을 때만
+  const next = Math.max(-250, Math.min(250, Math.round((s.latencyMs + r.meanMs) / 5) * 5));
+  return (
+    <p className="hint calib">
+      {r.meanMs > 0 ? `늘 ${r.meanMs}ms 늦게` : `늘 ${-r.meanMs}ms 빠르게`}채점됐어요. 태블릿 소리가 늦게 나오는 탓일 수도 있어요.{' '}
+      {done ? <b>보정 {next}ms 적용됨</b> : <button className="link" onClick={() => { setSettings({ latencyMs: next }); setDone(true); }} data-testid="calibrate">박자 보정 {next}ms 적용</button>}
+    </p>
   );
 }
