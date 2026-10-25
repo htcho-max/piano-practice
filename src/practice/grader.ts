@@ -24,7 +24,7 @@ export class WaitGrader {
 
   private skipRests() { while (this.idx < this.steps.length && this.steps[this.idx].notes.length === 0) this.idx++; }
 
-  noteOn(note: number, time: number): WaitFeedback {
+  noteOn(note: number, time: number, _held?: number[]): WaitFeedback {
     if (this.done) return { kind: 'ignore', note, step: this.idx };
     if (this.startedAt === null) this.startedAt = time;
     const step = this.steps[this.idx];

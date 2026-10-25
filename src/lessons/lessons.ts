@@ -1,8 +1,12 @@
 import { parseSteps, type Step } from '../music/steps';
 import { accompany, parseBarsText, PATTERNS, type ChordSpan, type PatternId } from '../music/chordbook';
 import { SCALES, scaleSteps, arpeggioSteps, hanon1 } from '../music/scales';
+import { arrangeBoth, voiceItems, type TwoLevel, type VoiceItem } from '../music/melodyvoice';
+import { findBuiltin } from '../songs/builtin';
+import { onlyHand, totalBeats } from '../music/steps';
 
-export type Mode = 'wait' | 'timed';
+/** free = 자유 반주 (멜로디 + 코드 악보, 아래는 마음대로 코드 음) */
+export type Mode = 'wait' | 'timed' | 'free';
 
 /** 건반 찾기 문제: accept 중 need 개를 (서로 다른 건반으로) 누르면 통과 */
 export type FindQuestion = { text: string; accept: number[]; need: number; hint?: string };
@@ -13,7 +17,9 @@ export type Exercise =
   /** sheet: 악보 보고 치기 (처음부터 악보 화면 + 건반 힌트 끔) */
   | { kind: 'play'; id: string; title: string; text: string; src: string; steps: Step[]; bpm: number; beats: number; modes: Mode[]; sheet?: boolean; chords?: ChordSpan[]; pedalAt?: number[]; fifths?: number }
   /** 코드 바꾸기 연습 */
-  | { kind: 'chords'; id: string; title: string; text: string; chords: string[]; rounds: number; modes: Mode[]; bpm: number };
+  | { kind: 'chords'; id: string; title: string; text: string; chords: string[]; rounds: number; modes: Mode[]; bpm: number }
+  /** 보이싱: 코드 + 맨 위 음(멜로디) → 멜로디가 맨 위인 화음 누르기 */
+  | { kind: 'voice'; id: string; title: string; text: string; items: VoiceItem[] };
 
 export type Lesson = { id: string; n: number; title: string; goal: string; body: string[]; tips: string[]; exercises: Exercise[] };
 
@@ -33,6 +39,14 @@ const acc = (id: string, title: string, text: string, bars: string, pat: Pattern
 const tech = (id: string, title: string, text: string, steps: Step[], o: { bpm?: number; fifths?: number; modes?: Mode[] } = {}): Exercise =>
   ({ kind: 'play', id, title, text, src: '', steps, bpm: o.bpm ?? 66, beats: 4, modes: o.modes ?? ['wait', 'timed'], sheet: true, fifths: o.fifths });
 const SC = (pc: number, minor = false) => SCALES.find((x) => x.pc === pc && x.kind === (minor ? 'minor' : 'major'))!;
+/** 기본 곡 멜로디 + 코드 → 양손 반주 단계 (free = 자유 반주: 멜로디 + 코드만) */
+const arranged = (id: string, title: string, text: string, songKey: string, level: TwoLevel | 'free', o: { bpm?: number } = {}): Exercise => {
+  const s = findBuiltin(songKey)!;
+  const right = onlyHand(s.steps, 'R');
+  const steps = level === 'free' ? right : arrangeBoth(right, s.chords!, level, s.beats, totalBeats(s.steps));
+  return { kind: 'play', id, title, text, src: '', steps, bpm: o.bpm ?? s.bpm, beats: s.beats, modes: level === 'free' ? ['free'] : ['wait', 'timed'], sheet: true, chords: s.chords, fifths: s.fifths };
+};
+const voice = (id: string, title: string, text: string, chordList: string[]): Exercise => ({ kind: 'voice', id, title, text, items: voiceItems(chordList) });
 const read = (id: string, title: string, text: string, level: string, count = 20): Exercise => ({ kind: 'read', id, title, text, level, count });
 
 /* 자주 쓰는 곡 (모두 저작권이 끝난 옛 곡) */
@@ -382,6 +396,35 @@ export const LESSONS: Lesson[] = [
       tech('l25-hanon', '하농 1번 (양손)', '8분음표로 고르게. 처음엔 기다려 주기로 무늬를 익혀요.', hanon1('B'), { bpm: 56 }),
       tech('l25-f', '바장조 양손', '오른손 1234 1234, 왼손 54321 321.', scaleSteps(SC(5), { hands: 'B', octaves: 1, rhythm: 'q' }), { bpm: 60, fifths: -1 }),
       tech('l25-d', '라장조 양손', '파♯·도♯. 손가락은 다장조와 같아요.', scaleSteps(SC(2), { hands: 'B', octaves: 1, rhythm: 'q' }), { bpm: 60, fifths: 2 }),
+    ],
+  },
+  {
+    id: 'l26', n: 26, title: '멜로디 위에 화음 쌓기', goal: '멜로디를 맨 위에 두고 그 아래를 코드 음으로',
+    body: [
+      '지금까지는 오른손이 코드, 왼손이 베이스였어요. 찬양 반주자는 보통 **오른손 맨 위(5번 손가락)로 멜로디**를 치고, 그 아래를 코드 음으로 채워요. 반주만 들어도 노래가 들리고, 소리도 훨씬 풍성해져요.',
+      '방법: ① 지금 멜로디 음이 **그 코드의 음**인지 봐요 (C 코드면 도·미·솔). ② 맞으면 멜로디에서 **아래로 내려가며 코드 음 둘**을 골라요. 멜로디가 미면 솔-도-**미**, 솔이면 도-미-**솔**, 도면 미-솔-**도**. 멜로디가 자리바꿈을 정해 주는 거예요.',
+      '멜로디가 코드 음이 아니면(지나가는 음) **멜로디만** 쳐요. 그리고 모든 음에 화음을 넣지 않아요 — **코드가 바뀌는 곳, 마디 첫 박, 긴 음**에만. 빠른 음까지 다 넣으면 무겁고 손도 바빠져요.',
+      '처음엔 멜로디 아래 **한 음(3도·6도)**만 넣어도 충분해요. 두 음이 다 되면 3음 화음.',
+    ],
+    tips: ['멜로디(5번)는 조금 세게, 아래 음은 가볍게 — 노래가 위에서 들리게', '아래 음은 멜로디에서 한 옥타브 안에서'],
+    exercises: [
+      voice('l26-v1', '멜로디가 맨 위인 C·F·G', '코드와 맨 위 음이 나오면 그 아래 코드 음 둘을 같이. 맨 위 음이 바뀌면 자리도 바뀌어요.', ['C', 'F', 'G', 'C', 'Am', 'F', 'G', 'C']),
+      arranged('l26-bi2', '비행기: 멜로디 + 한 음', '코드가 바뀌는 곳과 마디 첫 박에만 멜로디 아래 한 음. 왼손은 베이스 한 음.', 'bihaenggi', 2, { bpm: 72 }),
+      arranged('l26-gr3', '나 같은 죄인: 멜로디 맨 위 화음', '오른손 3음 화음(멜로디가 맨 위) + 왼손 근음·5음. 화음 아래 음은 멜로디가 움직이는 동안 누르고 있어요.', 'grace', 3, { bpm: 60 }),
+    ],
+  },
+  {
+    id: 'l27', n: 27, title: '찬양 양손 반주', goal: '왼손 베이스 + 오른손 멜로디 화음, 그리고 내 마음대로',
+    body: [
+      '왼손은 **근음**(슬래시 코드는 **/ 뒤 음**: D/F# 이면 파♯). 익숙해지면 **근음+5음**, 그다음 **근음-5음-옥타브 펼침**으로 넓혀요.',
+      '곡 탭에서 찬양 악보(글 악보·MusicXML)를 불러와 **"코드로 반주 만들기" → 양손 ①~④**를 고르면 그 곡의 단계별 반주 악보가 만들어져요. ①부터 차례로.',
+      '마지막은 **자유 반주**: 악보에는 멜로디와 코드만 있어요. 멜로디를 맨 위로 치면서 아래를 **내 마음대로** 채우면, 앱이 코드 밖 음·멜로디가 맨 위인지·코드가 바뀌는 곳에 화음을 넣었는지 채점해요. 정답이 하나가 아니라 원리로 치는 연습이에요.',
+    ],
+    tips: ['자유 반주에서 보라 건반 = 지금 쓸 수 있는 코드 음', '막히면 ① 멜로디 + 베이스로 돌아가도 괜찮아요'],
+    exercises: [
+      voice('l27-v', '사장조 보이싱: G D Em C', '찬양에 많은 G 장조. D/F# 처럼 슬래시 코드는 왼손으로 / 뒤 음을 쳐도 돼요.', ['G', 'D', 'Em', 'C', 'G', 'D/F#', 'Em', 'C']),
+      arranged('l27-gr4', '나 같은 죄인: 왼손 펼침 + 화음', '③의 오른손에 왼손 근음-5음-옥타브 펼친화음.', 'grace', 4, { bpm: 60 }),
+      arranged('l27-free', '나 같은 죄인: 자유 반주', '멜로디와 코드만 보고 내 화음으로. 코드가 바뀌는 음마다 멜로디 아래 두 음 이상이면 ●.', 'grace', 'free', { bpm: 60 }),
     ],
   },
 ];

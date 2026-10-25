@@ -393,6 +393,62 @@ try {
     ok(/곡 [3-9]개/.test(await text(page.getByTestId('backup-msg'))), `백업 불러오기: ${await text(page.getByTestId('backup-msg'))}`);
     await page.getByRole('button', { name: '닫기' }).click();
 
+    // 16. v0.7 — 멜로디 보이싱 양손 반주, 자유 반주, 보이싱 연습
+    await tab(page, '곡');
+    if (await page.getByRole('button', { name: /^‹ 곡 목록/ }).isVisible().catch(() => false)) await page.getByRole('button', { name: /^‹ 곡 목록/ }).click();
+    await page.getByTestId('song-grace').click();
+    await page.getByTestId('arrange-open').click();
+    await page.getByTestId('two-3').click();
+    await page.getByTestId('arrange-make').click();
+    await page.getByTestId('song-title').filter({ hasText: '반주(양손 ③)' }).waitFor({ timeout: 3000 });
+    ok(await page.locator('[data-testid="staff"] .note').count() >= 45, `양손 ③ 악보 음표 ${await page.locator('[data-testid="staff"] .note').count()}`);
+    await page.screenshot({ path: 'scripts/shot-voicing.png', fullPage: true });
+    await page.getByRole('button', { name: /^‹ 곡 목록/ }).click();
+    await page.getByTestId('song-grace').click();
+    await page.getByTestId('mode-free').click();
+    await page.getByTestId('wait-hint').waitFor(); await wait(page, 200);
+    ok(await page.locator('.key.mk-target').count() >= 0, '자유 반주 열림');
+    {
+      const MEL = [[62], [67, 71, 67], [71, 69], [67, 64], [62, 62], [67, 71, 67], [71, 69], [74], [74, 71], [74, 71, 67], [71, 69], [67, 64], [62, 62], [67, 71, 67], [71, 69], [67]];
+      const CH = ['', 'G', 'G', 'C', 'G', 'G', 'D', 'D', 'D', 'G', 'G', 'C', 'G', 'G', 'D', 'G'];
+      const PCS = { G: [7, 11, 2], C: [0, 4, 7], D: [2, 6, 9] }, BASS = { G: 43, C: 48, D: 50 };
+      for (let b = 0; b < MEL.length; b++) for (let k = 0; k < MEL[b].length; k++) {
+        const m = MEL[b][k];
+        const ch = CH[b];
+        const extra = [];
+        if (k === 0 && ch && PCS[ch].includes(m % 12)) {
+          extra.push(BASS[ch]);
+          for (let p = m - 3; p >= m - 12 && extra.length < 3; p--) if (PCS[ch].includes(p % 12) && p % 12 !== m % 12 && (extra.length === 1 || extra[extra.length - 1] - p >= 3)) extra.push(p);
+        }
+        await page.evaluate(({ extra, m }) => { extra.forEach((n) => window.__on(n)); window.__on(m); }, { extra, m });
+        await wait(page, 70);
+        await page.evaluate(({ extra, m }) => { extra.forEach((n) => window.__off(n)); window.__off(m); }, { extra, m });
+        await wait(page, 40);
+      }
+    }
+    await page.getByTestId('result').waitFor({ timeout: 3000 });
+    ok(Number((await text(page.getByTestId('score'))).replace('점', '')) >= 95, `자유 반주 점수 ${await text(page.getByTestId('score'))} · ${await text(page.getByTestId('verdict'))}`);
+    await tab(page, '배우기');
+    if (await page.getByRole('button', { name: /^‹/ }).first().isVisible().catch(() => false)) await page.getByRole('button', { name: /^‹/ }).first().click();
+    ok(await page.getByTestId('lesson-27').isVisible(), '27과까지');
+    await page.getByTestId('lesson-26').click();
+    await page.getByTestId('ex-l26-v1').click();
+    for (let i = 0; i < 8; i++) {
+      await page.getByTestId('voice-chord').waitFor(); await wait(page, 150);
+      const keys = await page.locator('.key.mk-now, .key.mk-soon').evaluateAll((els) => els.map((e) => Number(e.dataset.midi)));
+      await page.evaluate((ks) => ks.forEach((n) => window.__on(n)), keys);
+      await wait(page, 80);
+      await page.evaluate((ks) => ks.forEach((n) => window.__off(n)), keys);
+      await wait(page, 60);
+    }
+    await page.getByTestId('result').waitFor({ timeout: 3000 });
+    ok((await text(page.getByTestId('score'))) === '100점', `보이싱 연습 ${await text(page.getByTestId('score'))}`);
+    await tab(page, '코드');
+    await page.getByTestId('sub-voice').click();
+    await page.getByTestId('voice-chord').waitFor();
+    await page.screenshot({ path: 'scripts/shot-voice.png', fullPage: true });
+    ok((await text(page.getByTestId('voice-chord'))).length > 0, '코드 탭 보이싱');
+
     // 8. 오늘·기록
     await tab(page, '오늘');
     await wait(page, 300);

@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { isBlack, pc, label, noteName } from '../music/notes';
 import { pressVirtual, releaseVirtual } from '../midi/input';
 import { useHeld } from '../state/live';
@@ -24,6 +24,18 @@ export function Keyboard({ lo, hi, marks, flash, interactive = true, compact = f
   for (let m = lo; m <= hi; m++) if (!isBlack(m)) whites.push(m);
   const W = 100 / whites.length;
   const pointers = useRef(new Map<number, number>());
+  const box = useRef<HTMLDivElement>(null);
+  // 칠 건반(now)이 가로 스크롤 밖이면 보이게 옮김
+  const nowKeys = marks ? [...marks.entries()].filter(([, m]) => m.kind === 'now').map(([k]) => k).sort((a, b) => a - b).join(',') : '';
+  useEffect(() => {
+    const el = box.current, sc = el?.closest('.kb-scroll') as HTMLElement | null;
+    if (!el || !sc || !nowKeys || sc.scrollWidth <= sc.clientWidth + 2) return;
+    const ks = nowKeys.split(',').map((k) => el.querySelector(`[data-midi="${k}"]`) as HTMLElement | null).filter((x): x is HTMLElement => !!x);
+    if (!ks.length) return;
+    const l = Math.min(...ks.map((k) => k.offsetLeft)), r = Math.max(...ks.map((k) => k.offsetLeft + k.offsetWidth));
+    if (l >= sc.scrollLeft && r <= sc.scrollLeft + sc.clientWidth) return;
+    sc.scrollTo({ left: Math.max(0, (l + r) / 2 - sc.clientWidth / 2), behavior: 'smooth' });
+  }, [nowKeys]);
 
   const down = (m: number) => (ev: React.PointerEvent) => {
     if (!interactive) return;
@@ -66,7 +78,7 @@ export function Keyboard({ lo, hi, marks, flash, interactive = true, compact = f
   };
 
   return (
-    <div className={`keyboard${compact ? ' compact' : ''}`} style={{ minWidth: `${whites.length * (compact ? 17 : 26)}px` }} onPointerUp={up} onPointerCancel={up} onPointerLeave={up} onContextMenu={(e) => e.preventDefault()} data-testid="keyboard">
+    <div ref={box} className={`keyboard${compact ? ' compact' : ''}`} style={{ minWidth: `${whites.length * (compact ? 17 : 26)}px` }} onPointerUp={up} onPointerCancel={up} onPointerLeave={up} onContextMenu={(e) => e.preventDefault()} data-testid="keyboard">
       {whites.map((m, i) => {
         const mk = marks?.get(m);
         return (

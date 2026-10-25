@@ -8,12 +8,15 @@ import { PlayRunner } from '../components/PlayRunner';
 import { Rich } from '../components/Rich';
 import { ReadRunner } from '../components/ReadRunner';
 import { ChordDrill } from '../components/ChordDrill';
+import { VoiceDrill } from '../components/VoiceDrill';
 import { READ_LEVELS, findLevel } from '../practice/reading';
 
 function exKind(e: Exercise): string {
   if (e.kind === 'find') return '건반 찾기';
   if (e.kind === 'read') return '음표 읽기 퀴즈';
   if (e.kind === 'chords') return '코드 바꾸기';
+  if (e.kind === 'voice') return '보이싱 (멜로디 맨 위)';
+  if (e.modes[0] === 'free') return '자유 반주';
   const how = e.modes.includes('timed') ? (e.modes.includes('wait') ? '기다려 주기 → 박자 맞춰' : '박자 맞춰') : '기다려 주기';
   return e.sheet ? `악보 보고 · ${how}` : how;
 }
@@ -53,7 +56,7 @@ export function Learn({ target }: { target: LearnTarget }) {
         <div className="page">
           <div className="crumbs"><button className="link" onClick={() => setExId(null)}>‹ {lesson.n}과 {lesson.title}</button></div>
           <div className="ex-head"><h2 data-testid="ex-title">{ex.title}</h2><p className="hint">{ex.text}</p></div>
-          {ex.kind === 'find' ? <FindRunner key={ex.id} ex={ex} lesson={lesson} onDone={onDone} /> : ex.kind === 'chords' ? <ChordDrill key={ex.id} id={ex.id} lessonId={lesson.id} chords={ex.chords} rounds={ex.rounds} modes={ex.modes} bpm={ex.bpm} onDone={onDone} /> : ex.kind === 'read' ? <ReadRunner key={ex.id} levelId={ex.level} count={ex.count} exId={ex.id} lesson={lesson} onDone={onDone} /> : <PlayRunner key={ex.id} ex={ex} lessonId={lesson.id} onDone={onDone} />}
+          {ex.kind === 'find' ? <FindRunner key={ex.id} ex={ex} lesson={lesson} onDone={onDone} /> : ex.kind === 'chords' ? <ChordDrill key={ex.id} id={ex.id} lessonId={lesson.id} chords={ex.chords} rounds={ex.rounds} modes={ex.modes} bpm={ex.bpm} onDone={onDone} /> : ex.kind === 'voice' ? <VoiceDrill key={ex.id} id={ex.id} lessonId={lesson.id} items={ex.items} onDone={onDone} /> : ex.kind === 'read' ? <ReadRunner key={ex.id} levelId={ex.level} count={ex.count} exId={ex.id} lesson={lesson} onDone={onDone} /> : <PlayRunner key={ex.id} ex={ex} lessonId={lesson.id} onDone={onDone} />}
         </div>
       );
     }

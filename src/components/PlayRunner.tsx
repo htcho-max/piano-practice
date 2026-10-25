@@ -4,12 +4,14 @@ import { StepStrip, type StepState } from './StepStrip';
 import { Staff } from './Staff';
 import { Roll } from './Roll';
 import { useFlash } from './useFlash';
-import { onInput } from '../midi/input';
+import { onInput, heldNotes } from '../midi/input';
 import { metronome, perfToAudio } from '../audio/metronome';
 import { piano } from '../audio/piano';
 import { resumeAudio } from '../audio/context';
 import { gradePedal, type PedalResult, type PedalEv } from '../practice/grader';
-import type { ChordSpan } from '../music/chordbook';
+import { parseChord, bassNote, type ChordSpan } from '../music/chordbook';
+import { FreeGrader, freeLine, type FreeResult } from '../practice/free';
+import { melodySteps, spanAt, isChordTone } from '../music/melodyvoice';
 import { WaitGrader, TimedGrader, verdictLine, PASS_SCORE, type WaitResult, type TimedResult, type Verdict } from '../practice/grader';
 import { allMidis, handsUsed, onlyHand, totalBeats, sliceBars, barCount, barOf, type Step, type Hand } from '../music/steps';
 import { isBlack } from '../music/notes';
@@ -48,7 +50,7 @@ export function PlayRunner({ ex, lessonId, song = false, onDone }: { ex: Piece; 
   const [hitNow, setHitNow] = useState<number[]>([]); // 기다려 주기: 지금 칸에서 누른 음
   const [states, setStates] = useState<StepState[]>([]);
   const [count, setCount] = useState<number | null>(null);
-  const [result, setResult] = useState<WaitResult | TimedResult | null>(null);
+  const [result, setResult] = useState<WaitResult | TimedResult | FreeResult | null>(null);
   const [errors, setErrors] = useState(0);
   const [flash, doFlash] = useFlash();
   // 보기: 악보 / 이름 칸, 건반 힌트(칠 건반 색칠) — 연습마다 기억
@@ -65,7 +67,8 @@ export function PlayRunner({ ex, lessonId, song = false, onDone }: { ex: Piece; 
   const [ladderMsg, setLadderMsg] = useState<string | null>(null);
   const baseSteps: Step[] = useMemo(() => (section ? sliceBars(ex.steps, ex.beats, section[0], section[1]) : ex.steps), [ex, section]);
   const barOffset = section ? section[0] - 1 : 0;
-  const steps: Step[] = useMemo(() => (hands === 'B' ? baseSteps : onlyHand(baseSteps, hands)), [baseSteps, hands]);
+  const free = mode === 'free';
+  const steps: Step[] = useMemo(() => (free ? melodySteps(baseSteps) : hands === 'B' ? baseSteps : onlyHand(baseSteps, hands)), [baseSteps, hands, free]);
   const beatRef = useRef(0);
   // 구간이면 코드·페달 박도 잘라서
   const secStart = section ? (section[0] - 1) * ex.beats : 0, secEnd = section ? section[1] * ex.beats : Infinity;
@@ -76,8 +79,9 @@ export function PlayRunner({ ex, lessonId, song = false, onDone }: { ex: Piece; 
   const clock = useCallback(() => beatRef.current, []);
   const loopTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startRef = useRef<() => void>(() => {});
-  const range = useMemo(() => fitRange(allMidis(ex.steps), 15), [ex]);
-  const wait = useRef<WaitGrader | null>(null);
+  // 자유 반주는 왼손 베이스 자리(미2~)까지 보이게
+  const range = useMemo(() => fitRange(free ? [...allMidis(ex.steps), 40] : allMidis(ex.steps), 15), [ex, free]);
+  const wait = useRef<WaitGrader | FreeGrader | null>(null);
   const timed = useRef<TimedGrader | null>(null);
   const raf = useRef(0);
   const unsubTick = useRef<(() => void) | null>(null);
@@ -96,20 +100,24 @@ export function PlayRunner({ ex, lessonId, song = false, onDone }: { ex: Piece; 
   /** 기다려 주기 시작 (바로 첫 음을 기다림) */
   const startWait = useCallback(() => {
     stopAll();
-    wait.current = new WaitGrader(steps);
+    wait.current = free ? new FreeGrader(steps, chords ?? []) : new WaitGrader(steps);
     timed.current = null;
     setCur(wait.current.idx); setHitNow([]); setStates(steps.map(() => 'todo')); setErrors(0); setResult(null);
     setPhase('playing');
-  }, [steps, stopAll]);
+  }, [steps, stopAll, free, chords]);
 
   // 연습을 열거나 모드·손을 바꾸면 기다려 주기는 바로 준비, 박자 맞춰는 시작 버튼 대기
   useEffect(() => {
-    if (mode === 'wait') startWait();
+    if (mode !== 'timed') startWait();
     else { stopAll(); wait.current = null; timed.current = null; setPhase('ready'); setCur(-1); setStates(steps.map(() => 'todo')); setResult(null); }
     return stopAll;
   }, [mode, steps, startWait, stopAll]);
 
-  const save = useCallback((r: WaitResult | TimedResult, g?: TimedGrader, w?: WaitGrader) => {
+  const save = useCallback((r: WaitResult | TimedResult | FreeResult, g?: TimedGrader, w?: WaitGrader | FreeGrader) => {
+    if (r.mode === 'free') {
+      void addRun({ exId: ex.modes[0] === 'free' ? ex.id : `${ex.id}:free`, lessonId, date: localDate(), ts: Date.now(), mode: 'free', hands: 'B', bpm: null, score: r.score, passed: r.score >= PASS_SCORE && !section, seconds: Math.round(r.seconds), detail: freeLine(r), section: section ?? [1, nBars] });
+      return;
+    }
     const full = hands === 'B' || used.length === 1;
     const needTimed = ex.modes.includes('timed');
     const passed = full && r.score >= PASS_SCORE && (!needTimed || r.mode === 'timed') && !section;
@@ -186,7 +194,7 @@ export function PlayRunner({ ex, lessonId, song = false, onDone }: { ex: Piece; 
     const w = wait.current;
     if (w && phase === 'playing') {
       if (e.kind === 'off') { w.noteOff(e.note); setHitNow([...w.hit]); return; }
-      const f = w.noteOn(e.note, e.time);
+      const f = w.noteOn(e.note, e.time, heldNotes());
       if (f.kind === 'wrong') { doFlash(e.note, 'bad'); setErrors((x) => x + 1); setStates((ss) => ss.map((s, i) => (i === f.step ? 'wrong' : s))); }
       else if (f.kind === 'hit' || f.kind === 'step' || f.kind === 'done') {
         doFlash(e.note, 'good');
@@ -220,24 +228,34 @@ export function PlayRunner({ ex, lessonId, song = false, onDone }: { ex: Piece; 
       beatRef.current = beat;
       let k = -1; baseSteps.forEach((s, i) => { if (s.beat <= beat) k = i; });
       setCur(k);
-      if (now > end + 300) { stopAll(); setCur(-1); if (mode === 'wait') startWait(); else setPhase('ready'); return; }
+      if (now > end + 300) { stopAll(); setCur(-1); if (mode !== 'timed') startWait(); else setPhase('ready'); return; }
       raf.current = requestAnimationFrame(loop);
     };
     raf.current = requestAnimationFrame(loop);
   };
-  const stopListen = () => { stopAll(); setCur(-1); if (mode === 'wait') startWait(); else setPhase('ready'); };
+  const stopListen = () => { stopAll(); setCur(-1); if (mode !== 'timed') startWait(); else setPhase('ready'); };
 
   // 건반 표시: 지금 칸(진하게) + 다음 칸(옅게)
   const showSteps = phase === 'listening' ? baseSteps : steps;
   // 기다려 주기: 떨어지는 건반은 지금 칸 박에 맞춤
-  if (mode === 'wait' && phase !== 'listening') beatRef.current = cur >= 0 && steps[cur] ? steps[cur].beat : phase === 'result' ? totalBeats(steps) : 0;
+  if (mode !== 'timed' && phase !== 'listening') beatRef.current = cur >= 0 && steps[cur] ? steps[cur].beat : phase === 'result' ? totalBeats(steps) : 0;
   const marks = new Map<number, KeyMark>();
   // 힌트를 꺼도: 들어 보기 중이거나, 기다려 주기에서 지금 칸을 한 번 틀리면 보여 줌
-  const showHints = hints || phase === 'listening' || (mode === 'wait' && cur >= 0 && (wait.current?.errorsPerStep[cur] ?? 0) > 0);
+  const showHints = hints || phase === 'listening' || (mode !== 'timed' && cur >= 0 && (wait.current?.errorsPerStep[cur] ?? 0) > 0);
   const nextIdx = nextNonRest(showSteps, cur + 1);
   if (showHints && nextIdx >= 0 && phase !== 'result') showSteps[nextIdx].notes.forEach((n) => marks.set(n.midi, { hand: n.hand, finger: n.finger, kind: 'soon' }));
   const curStep = cur >= 0 ? showSteps[cur] : undefined;
-  if (curStep && phase !== 'result') curStep.notes.forEach((n) => { const ok = hitNow.includes(n.midi) && mode === 'wait'; if (showHints || ok) marks.set(n.midi, { hand: n.hand, finger: n.finger, kind: ok ? 'ok' : 'now' }); });
+  if (curStep && phase !== 'result') curStep.notes.forEach((n) => { const ok = hitNow.includes(n.midi) && mode !== 'timed'; if (showHints || ok) marks.set(n.midi, { hand: n.hand, finger: n.finger, kind: ok ? 'ok' : 'now' }); });
+  if (free && hints && curStep && phase === 'playing') {
+    const sp = chords && spanAt(chords, curStep.beat);
+    const c = sp && parseChord(sp.name);
+    const mel = Math.max(...curStep.notes.map((n) => n.midi));
+    if (c) {
+      for (let m = mel - 12; m < mel; m++) if (m >= range[0] && c.pcs.includes(((m % 12) + 12) % 12) && !marks.has(m)) marks.set(m, { hand: 'R', kind: 'target' });
+      const b = bassNote(c);
+      if (b >= range[0] && !marks.has(b)) marks.set(b, { hand: 'L', kind: 'target' });
+    }
+  }
   if (showHints && phase === 'ready' && mode === 'timed') { const f = nextNonRest(steps, 0); if (f >= 0) steps[f].notes.forEach((n) => marks.set(n.midi, { hand: n.hand, finger: n.finger, kind: 'now' })); }
 
   const timedLike = mode === 'timed';
@@ -251,9 +269,10 @@ export function PlayRunner({ ex, lessonId, song = false, onDone }: { ex: Piece; 
           <div className="segmented" role="group" aria-label="연습 방법">
             <button className={mode === 'wait' ? 'on' : ''} onClick={() => setMode('wait')} data-testid="mode-wait" disabled={running}>기다려 주기</button>
             <button className={mode === 'timed' ? 'on' : ''} onClick={() => setMode('timed')} data-testid="mode-timed" disabled={running}>박자 맞춰</button>
+            {ex.modes.includes('free') && <button className={mode === 'free' ? 'on' : ''} onClick={() => setMode('free')} data-testid="mode-free" disabled={running}>자유 반주</button>}
           </div>
         )}
-        {used.length > 1 && (
+        {used.length > 1 && !free && (
           <div className="segmented small" role="group" aria-label="손">
             <button className={hands === 'B' ? 'on' : ''} onClick={() => setHands('B')} disabled={running} data-testid="hands-B">양손</button>
             <button className={hands === 'R' ? 'on' : ''} onClick={() => setHands('R')} disabled={running} data-testid="hands-R">오른손만</button>
@@ -276,6 +295,7 @@ export function PlayRunner({ ex, lessonId, song = false, onDone }: { ex: Piece; 
             ? <button className="primary wide stop" onClick={() => { stopAll(); setPhase('ready'); setCur(-1); }} data-testid="timed-stop">■ 멈추기</button>
             : <button className="primary wide" onClick={startTimed} data-testid="timed-start">{phase === 'result' ? '다시 치기' : '시작 (한 마디 세고 시작)'}</button>
         )}
+        {free && phase === 'playing' && <p className="hint">악보는 <b>멜로디 + 코드</b>만 있어요. 멜로디 음을 <b>맨 위</b>로 치고, 그 아래(왼손 포함)는 코드 음을 마음대로 — 보라 건반이 쓸 수 있는 코드 음이에요. 코드가 바뀌는 음에서 아래 두 음 이상이면 화음 ●.</p>}
         {!timedLike && phase === 'playing' && <p className="hint" data-testid="wait-hint">{cur <= nextNonRest(steps, 0) && errors === 0 ? '준비되면 초록·파란 건반을 누르세요. 맞게 누를 때까지 기다려요.' : `틀린 건반 ${errors}번`}</p>}
         {hands !== 'B' && timedLike && <p className="hint">{hands === 'R' ? '왼손' : '오른손'}은 앱이 소리를 내 줘요.</p>}
       </div>
@@ -294,7 +314,7 @@ export function PlayRunner({ ex, lessonId, song = false, onDone }: { ex: Piece; 
         </div>
         <label className="row-setting small"><input type="checkbox" checked={hints} onChange={(e) => setHints(e.target.checked)} data-testid="hints" />건반 힌트</label>
       </div>
-      {view === 'staff' && <Staff steps={showSteps} beats={ex.beats} timeNum={ex.timeNum} timeDen={ex.timeDen} mode={used.length === 1 ? (used[0] === 'R' ? 'treble' : 'bass') : 'grand'} cur={cur} states={phase === 'listening' ? [] : states} fingers={settings.fingers && hints} wrap barOffset={barOffset} chords={chords} fifths={ex.fifths} />}
+      {view === 'staff' && <Staff steps={showSteps} beats={ex.beats} timeNum={ex.timeNum} timeDen={ex.timeDen} mode={free ? 'treble' : used.length === 1 ? (used[0] === 'R' ? 'treble' : 'bass') : 'grand'} cur={cur} states={phase === 'listening' ? [] : states} fingers={settings.fingers && hints} wrap barOffset={barOffset} chords={chords} fifths={ex.fifths} />}
       {view === 'names' && <StepStrip steps={showSteps} cur={cur} states={phase === 'listening' ? [] : states} beats={ex.beats} />}
       <div className="kb-scroll">
         {view === 'roll' && <Roll steps={showSteps} lo={range[0]} hi={range[1]} clock={clock} minWidth={whiteCount * 26} />}
@@ -302,7 +322,8 @@ export function PlayRunner({ ex, lessonId, song = false, onDone }: { ex: Piece; 
       </div>
 
       {pedalAt?.length && timedLike && phase !== 'result' ? <p className="hint">🦶 코드가 바뀔 때마다 페달을 <b>뗐다가 바로 다시</b> 밟아요 (코드를 누른 직후). 끝나면 페달도 채점해요.</p> : null}
-      {result && phase === 'result' && <ResultCard pedal={pedalRes} song={song} r={result} hands={hands} needTimed={ex.modes.includes('timed')} onAgain={() => (mode === 'wait' ? startWait() : startTimed())} onTimed={ex.modes.includes('timed') && mode === 'wait' ? () => setMode('timed') : undefined} onDone={onDone} />}
+      {result && phase === 'result' && result.mode === 'free' && <FreeCard r={result} onAgain={startWait} onDone={onDone} />}
+      {result && phase === 'result' && result.mode !== 'free' && <ResultCard pedal={pedalRes} song={song} r={result} hands={hands} needTimed={ex.modes.includes('timed')} onAgain={() => (mode !== 'timed' ? startWait() : startTimed())} onTimed={ex.modes.includes('timed') && mode === 'wait' ? () => setMode('timed') : undefined} onDone={onDone} />}
     </div>
   );
 }
@@ -326,6 +347,27 @@ function worst(vs: (Verdict | null)[]): StepState {
   if (vs.includes('late')) return 'late';
   if (vs.includes('good')) return 'good';
   return 'todo';
+}
+
+function FreeCard({ r, onAgain, onDone }: { r: FreeResult; onAgain: () => void; onDone?: () => void }) {
+  const pass = r.score >= PASS_SCORE;
+  return (
+    <div className={`card result ${pass ? 'pass' : ''}`} data-testid="result">
+      <div className="result-head">
+        <div className="score-big" data-testid="score">{r.score}<small>점</small></div>
+        <div>
+          <b>{pass ? '멋진 반주!' : '조금 더'}</b>
+          <p className="hint" data-testid="verdict">{freeLine(r)}</p>
+        </div>
+      </div>
+      {r.harmTotal > 0 && <div className="harm-dots" aria-label="화음 넣은 곳">{Array.from({ length: r.harmTotal }, (_, i) => <span key={i}>{i < r.harmFull ? '●' : i < r.harmFull + r.harmHalf ? '◐' : '○'}</span>)}</div>}
+      <div className="muted small">멜로디 {r.clean}/{r.steps} 깔끔 · 걸린 시간 {Math.round(r.seconds)}초 · 점수 = 멜로디 60 + 화음 40</div>
+      <div className="row">
+        <button className="secondary" onClick={onAgain} data-testid="again">다시 하기</button>
+        {onDone && <button className={pass ? 'primary' : 'secondary'} onClick={onDone}>다음</button>}
+      </div>
+    </div>
+  );
 }
 
 function ResultCard({ r, hands, needTimed, onAgain, onTimed, onDone, song, pedal }: { r: WaitResult | TimedResult; hands: Hands; needTimed: boolean; onAgain: () => void; onTimed?: () => void; onDone?: () => void; song?: boolean; pedal?: PedalResult | null }) {

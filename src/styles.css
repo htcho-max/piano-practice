@@ -248,3 +248,13 @@ h2 { margin: 0; font-size: 20px; }
 .prompt { white-space: pre-wrap; font-size: 12px; background: var(--surface-2); padding: 10px; border-radius: 10px; max-height: 260px; overflow: auto; margin: 0; }
 .song-edit summary { cursor: pointer; font-weight: 700; }
 .song-edit[open] { gap: 10px; }
+
+/* 자유 반주·보이싱: 쓸 수 있는 코드 음 */
+.key.white.mk-target { background: #ede9fe; } .key.black.mk-target { background: #7c3aed; }
+.harm-dots { display: flex; flex-wrap: wrap; gap: 2px; font-size: 16px; color: var(--good, #15803d); letter-spacing: 1px; }
+.arr-group { margin-top: 6px; }
+.arr-group > .muted { display: block; margin-bottom: 2px; }
+.voice-top { font-size: 20px; }
+.voice-top b { font-size: 26px; }
+.segmented.subtabs { display: grid; grid-template-columns: repeat(3, 1fr); }
+@media (min-width: 640px) { .segmented.subtabs { grid-template-columns: repeat(6, 1fr); } }

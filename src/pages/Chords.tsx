@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react';
 import { Keyboard, type KeyMark } from '../components/Keyboard';
 import { ChordDrill } from '../components/ChordDrill';
+import { VoiceDrill } from '../components/VoiceDrill';
+import { voiceItems } from '../music/melodyvoice';
 import { PlayRunner, type Piece } from '../components/PlayRunner';
 import { Play } from './Play';
 import { QUALITIES, KEYS, PROGRESSIONS, PATTERNS, parseChord, matchChord, rhFingers, bassNote, rootName, progressionChords, accompany, FLAT_KEYS, type PatternId } from '../music/chordbook';
@@ -11,8 +13,8 @@ import { piano } from '../audio/piano';
 import { resumeAudio } from '../audio/context';
 import { perfToAudio } from '../audio/metronome';
 
-type Sub = 'dict' | 'drill' | 'acc' | 'scales' | 'free';
-const SUBS: { id: Sub; label: string }[] = [{ id: 'dict', label: '코드 사전' }, { id: 'drill', label: '코드 바꾸기' }, { id: 'acc', label: '반주 패턴' }, { id: 'scales', label: '음계' }, { id: 'free', label: '자유 연주' }];
+type Sub = 'dict' | 'drill' | 'voice' | 'acc' | 'scales' | 'free';
+const SUBS: { id: Sub; label: string }[] = [{ id: 'dict', label: '코드 사전' }, { id: 'drill', label: '코드 바꾸기' }, { id: 'voice', label: '보이싱' }, { id: 'acc', label: '반주 패턴' }, { id: 'scales', label: '음계' }, { id: 'free', label: '자유 연주' }];
 
 function load<T extends string>(k: string, d: T): T { try { return (localStorage.getItem(k) as T) || d; } catch { return d; } }
 function save(k: string, v: string) { try { localStorage.setItem(k, v); } catch { /* 무시 */ } }
@@ -22,11 +24,12 @@ export function Chords() {
   const setSub = (s: Sub) => { setSubState(s); save('piano-chords-sub', s); };
   return (
     <div className="page">
-      <div className="segmented small" role="tablist">
+      <div className="segmented small subtabs" role="tablist">
         {SUBS.map((s) => <button key={s.id} className={sub === s.id ? 'on' : ''} onClick={() => setSub(s.id)} data-testid={`sub-${s.id}`}>{s.label}</button>)}
       </div>
       {sub === 'dict' && <Dict />}
       {sub === 'drill' && <Drill />}
+      {sub === 'voice' && <Voice />}
       {sub === 'acc' && <Acc />}
       {sub === 'scales' && <Scales />}
       {sub === 'free' && <Play />}
@@ -101,6 +104,21 @@ function Drill() {
       <ProgPicker prog={prog} setProg={(v) => { setProg(v); save('piano-drill-prog', v); }} keyPc={key} setKey={(v) => { setKey(v); save('piano-drill-key', String(v)); }} />
       <p className="hint">{p.note}. 진행: <b>{chords.join(' – ')}</b> (두 바퀴)</p>
       <ChordDrill key={`${prog}:${key}`} id={`chord:${prog}:${key}`} lessonId="chords" chords={chords} rounds={2} />
+    </>
+  );
+}
+
+/* ── 보이싱: 멜로디(맨 위 음)가 주어진 코드 ── */
+function Voice() {
+  const [prog, setProg] = useState<string>(() => load('piano-voice-prog', 'basic'));
+  const [key, setKey] = useState(() => Number(load('piano-voice-key', '0')));
+  const p = PROGRESSIONS.find((x) => x.id === prog) ?? PROGRESSIONS[0];
+  const items = useMemo(() => voiceItems([...progressionChords(p, key), ...progressionChords(p, key)]), [p, key]);
+  return (
+    <>
+      <ProgPicker prog={prog} setProg={(v) => { setProg(v); save('piano-voice-prog', v); }} keyPc={key} setKey={(v) => { setKey(v); save('piano-voice-key', String(v)); }} />
+      <p className="hint">찬양 반주처럼 <b>멜로디를 맨 위</b>에 두는 연습. 맨 위 음이 바뀌면 같은 코드도 자리가 달라져요. 진행: <b>{items.map((x) => x.chord).join(' – ')}</b></p>
+      <VoiceDrill key={`${prog}:${key}`} id={`voice:${prog}:${key}`} lessonId="chords" items={items} />
     </>
   );
 }

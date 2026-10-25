@@ -44,7 +44,7 @@ export function Log() {
             return (
               <li key={r.id} className={r.passed ? 'passed' : ''}>
                 <div className="rl-top"><b>{f ? `${f.lesson.n}과 · ${f.ex.title}` : songName(r.exId)}</b><span className="score">{r.score}점</span></div>
-                <div className="muted small">{r.date.slice(5).replace('-', '/')} · {r.mode === 'timed' ? `박자 맞춰 ♩${r.bpm}` : r.mode === 'wait' ? '기다려 주기' : r.mode === 'read' ? '음표 읽기' : '건반 찾기'}{r.section && r.lessonId === 'song' ? ` · ${r.section[0]}~${r.section[1]}마디` : ''}{r.hands !== 'B' ? ` · ${r.hands === 'R' ? '오른손' : '왼손'}만` : ''}{r.passed ? ' · 통과' : ''}</div>
+                <div className="muted small">{r.date.slice(5).replace('-', '/')} · {r.mode === 'timed' ? `박자 맞춰 ♩${r.bpm}` : r.mode === 'wait' ? '기다려 주기' : r.mode === 'free' ? '자유 반주' : r.mode === 'read' ? '음표 읽기' : '건반 찾기'}{r.section && r.lessonId === 'song' ? ` · ${r.section[0]}~${r.section[1]}마디` : ''}{r.hands !== 'B' ? ` · ${r.hands === 'R' ? '오른손' : '왼손'}만` : ''}{r.passed ? ' · 통과' : ''}</div>
                 {r.detail && <div className="small">{r.detail}</div>}
               </li>
             );

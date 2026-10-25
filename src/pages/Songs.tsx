@@ -11,8 +11,13 @@ import { bestScore } from '../data/progress';
 import { barCount, onlyHand, totalBeats } from '../music/steps';
 import { harmonize, type MelNote } from '../music/harmonize';
 import { parseBarsText, barsText, leftHand, mergeHands, LEFT_KINDS, type LeftKind } from '../music/chordbook';
+import { arrangeBoth, TWO_LEVELS, type TwoLevel } from '../music/melodyvoice';
+import type { Mode } from '../lessons/lessons';
 
-export const pieceOfSong = (s: Song): Piece => ({ id: `song:u${s.id}`, title: s.title, steps: s.steps, bpm: s.bpm, beats: s.beats, timeNum: s.timeNum, timeDen: s.timeDen, modes: ['wait', 'timed'], chords: s.chords, pedalAt: s.pedalAt, fifths: s.fifths });
+/** 코드가 있는 곡은 자유 반주도 */
+const modesOf = (chords?: unknown[]): Mode[] => (chords?.length ? ['wait', 'timed', 'free'] : ['wait', 'timed']);
+
+export const pieceOfSong = (s: Song): Piece => ({ id: `song:u${s.id}`, title: s.title, steps: s.steps, bpm: s.bpm, beats: s.beats, timeNum: s.timeNum, timeDen: s.timeDen, modes: modesOf(s.chords), chords: s.chords, pedalAt: s.pedalAt, fifths: s.fifths });
 
 /** 멜로디(오른손 맨 위 음) → 코드 붙이기용 음 */
 function melodyOf(p: Piece): MelNote[] {
@@ -24,12 +29,15 @@ function melodyOf(p: Piece): MelNote[] {
   });
 }
 
-/** 코드 붙여 반주 만들기: 오른손 멜로디는 그대로, 왼손을 코드로 새로 */
+type Kind = LeftKind | `two${TwoLevel}`;
+const isTwo = (k: Kind): k is `two${TwoLevel}` => k.startsWith('two');
+
+/** 코드로 반주 만들기: 오른손 멜로디는 그대로, 양손(멜로디 위 화음) 또는 왼손만 코드로 새로 */
 function ArrangeCard({ piece, fifths, onMade }: { piece: Piece; fifths?: number; onMade: (o: Open) => void }) {
   const bars = barCount(piece.steps, piece.beats);
   const [openCard, setOpenCard] = useState(false);
   const [text, setText] = useState(() => (piece.chords?.length ? barsText(piece.chords, piece.beats, bars) : ''));
-  const [kind, setKind] = useState<LeftKind>('bass');
+  const [kind, setKind] = useState<Kind>('two1');
   const [msg, setMsg] = useState<string | null>(null);
   const auto = () => {
     const mel = melodyOf(piece);
@@ -44,22 +52,31 @@ function ArrangeCard({ piece, fifths, onMade }: { piece: Piece; fifths?: number;
     if (!spans.length) { setMsg('코드를 적거나 자동으로 붙여 주세요.'); return; }
     const right = onlyHand(piece.steps, 'R');
     const total = Math.max(totalBeats(piece.steps), bars * piece.beats);
-    const steps = mergeHands(right, leftHand(spans, kind, piece.beats), total);
-    const k = LEFT_KINDS.find((x) => x.id === kind)!;
-    const song: Song = { title: `${piece.title.replace(/ · 반주\(.*\)$/, '')} · 반주(${k.title})`, beats: piece.beats, timeNum: piece.timeNum ?? piece.beats, timeDen: piece.timeDen ?? 4, bpm: piece.bpm, steps, origin: 'import', createdAt: Date.now(), chords: spans, pedalAt: spans.map((s) => s.beat), fifths };
+    const lv = isTwo(kind) ? (Number(kind.slice(3)) as TwoLevel) : null;
+    const steps = lv ? arrangeBoth(right, spans, lv, piece.beats, total) : mergeHands(right, leftHand(spans, kind as LeftKind, piece.beats), total);
+    const label = lv ? `양손 ${'①②③④'[lv - 1]}` : LEFT_KINDS.find((x) => x.id === kind)!.title;
+    const song: Song = { title: `${piece.title.replace(/ · 반주\(.*\)$/, '')} · 반주(${label})`, beats: piece.beats, timeNum: piece.timeNum ?? piece.beats, timeDen: piece.timeDen ?? 4, bpm: piece.bpm, steps, origin: 'import', createdAt: Date.now(), chords: spans, pedalAt: spans.map((s) => s.beat), fifths };
     const id = await db.songs.add(song);
     notify();
-    onMade({ piece: pieceOfSong({ ...song, id }), note: '오른손 멜로디 + 왼손 반주 (내 곡에 저장됨)', fifths });
+    onMade({ piece: pieceOfSong({ ...song, id }), note: lv ? `멜로디가 맨 위인 양손 반주 ${'①②③④'[lv - 1]} (내 곡에 저장됨)` : '오른손 멜로디 + 왼손 반주 (내 곡에 저장됨)', fifths });
   };
-  if (!openCard) return <button className="secondary wide" onClick={() => setOpenCard(true)} data-testid="arrange-open">🎹 코드 붙여 왼손 반주 만들기</button>;
+  if (!openCard) return <button className="secondary wide" onClick={() => setOpenCard(true)} data-testid="arrange-open">🎹 코드로 반주 만들기 (양손·왼손)</button>;
   return (
     <div className="card" data-testid="arrange">
       <div className="card-head"><b>코드 붙여 반주 만들기</b><button className="mini" onClick={() => setOpenCard(false)} aria-label="닫기">✕</button></div>
       <p className="hint">마디마다 코드를 <b>|</b> 로 나눠 적어요. 한 마디에 둘이면 띄어 쓰기 (<b>Am F</b>), 앞 마디 그대로는 <b>%</b>. 찬양 악보의 코드를 그대로 옮겨 적으면 돼요.</p>
       <textarea className="chord-text" rows={3} value={text} onChange={(e) => setText(e.target.value)} placeholder="C | G | Am F | G" data-testid="arrange-text" />
       <div className="row"><button className="secondary" onClick={auto} data-testid="arrange-auto">멜로디로 코드 자동 붙이기</button></div>
-      <div className="chips">{LEFT_KINDS.map((x) => <button key={x.id} className={`chip mini${kind === x.id ? ' on' : ''}`} onClick={() => setKind(x.id)} title={x.note} data-testid={`left-${x.id}`}>{x.title}</button>)}</div>
-      <p className="hint">{LEFT_KINDS.find((x) => x.id === kind)!.note}</p>
+      <div className="arr-group">
+        <span className="muted small">양손 — 멜로디가 맨 위인 화음 (단계별로)</span>
+        <div className="chips">{TWO_LEVELS.map((x) => <button key={x.id} className={`chip mini${kind === `two${x.id}` ? ' on' : ''}`} onClick={() => setKind(`two${x.id}`)} title={x.note} data-testid={`two-${x.id}`}>{x.title}</button>)}</div>
+      </div>
+      <div className="arr-group">
+        <span className="muted small">왼손만 (오른손은 멜로디)</span>
+        <div className="chips">{LEFT_KINDS.map((x) => <button key={x.id} className={`chip mini${kind === x.id ? ' on' : ''}`} onClick={() => setKind(x.id)} title={x.note} data-testid={`left-${x.id}`}>{x.title}</button>)}</div>
+      </div>
+      <p className="hint">{isTwo(kind) ? TWO_LEVELS.find((x) => `two${x.id}` === kind)!.note : LEFT_KINDS.find((x) => x.id === kind)!.note}</p>
+      {isTwo(kind) && <p className="hint">만든 반주는 <b>①부터 차례로</b>. 익숙해지면 연습 방법의 <b>자유 반주</b>로 악보 없이 내 화음을 넣어 봐요.</p>}
       <button className="primary" onClick={() => void make()} data-testid="arrange-make">반주 악보 만들기</button>
       {msg && <p className="hint" data-testid="arrange-msg">{msg}</p>}
     </div>
@@ -119,7 +136,7 @@ export function Songs() {
     if (file.current) file.current.value = '';
   };
 
-  const pieceOfBuiltin = (b: (typeof BUILTIN_SONGS)[number]): Piece => ({ id: `song:${b.key}`, title: b.title, steps: b.steps, bpm: b.bpm, beats: b.beats, timeNum: b.timeNum, timeDen: b.timeDen, modes: ['wait', 'timed'], chords: b.chords, fifths: b.fifths });
+  const pieceOfBuiltin = (b: (typeof BUILTIN_SONGS)[number]): Piece => ({ id: `song:${b.key}`, title: b.title, steps: b.steps, bpm: b.bpm, beats: b.beats, timeNum: b.timeNum, timeDen: b.timeDen, modes: modesOf(b.chords), chords: b.chords, fifths: b.fifths });
   
   const meta = (id: string) => {
     const rs = runs.filter((r) => r.exId === id);
