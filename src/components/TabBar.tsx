@@ -1,9 +1,9 @@
-export type TabId = 'today' | 'learn' | 'songs' | 'play' | 'log';
+export type TabId = 'today' | 'learn' | 'songs' | 'chords' | 'log';
 export const TABS: { id: TabId; label: string; icon: string }[] = [
   { id: 'today', label: '오늘', icon: '◎' },
   { id: 'learn', label: '배우기', icon: '♪' },
   { id: 'songs', label: '곡', icon: '♫' },
-  { id: 'play', label: '건반', icon: '▥' },
+  { id: 'chords', label: '코드', icon: '▥' },
   { id: 'log', label: '기록', icon: '▦' },
 ];
 

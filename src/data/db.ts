@@ -34,6 +34,10 @@ export type Song = {
   fileName?: string;
   createdAt: number;
   warnings?: string[];
+  /** 코드 이름 구간 (반주 만들기·악보 위 표시), 페달 바꿀 박, 조표 */
+  chords?: { name: string; beat: number; dur: number }[];
+  pedalAt?: number[];
+  fifths?: number;
 };
 
 /** 하루 연습 시간 (건반을 친 시간, 초) */

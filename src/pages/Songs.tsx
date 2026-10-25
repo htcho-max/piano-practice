@@ -6,9 +6,65 @@ import { parseMusicXML, readScoreFile } from '../music/musicxml';
 import { PlayRunner, type Piece } from '../components/PlayRunner';
 import { useBackLayer } from '../state/back';
 import { bestScore } from '../data/progress';
-import { barCount } from '../music/steps';
+import { barCount, onlyHand, totalBeats } from '../music/steps';
+import { harmonize, type MelNote } from '../music/harmonize';
+import { parseBarsText, barsText, leftHand, mergeHands, LEFT_KINDS, type LeftKind } from '../music/chordbook';
 
-type Open = { piece: Piece; composer?: string; note?: string; warnings?: string[] };
+export const pieceOfSong = (s: Song): Piece => ({ id: `song:u${s.id}`, title: s.title, steps: s.steps, bpm: s.bpm, beats: s.beats, timeNum: s.timeNum, timeDen: s.timeDen, modes: ['wait', 'timed'], chords: s.chords, pedalAt: s.pedalAt });
+
+/** 멜로디(오른손 맨 위 음) → 코드 붙이기용 음 */
+function melodyOf(p: Piece): MelNote[] {
+  return p.steps.flatMap((st) => {
+    const r = st.notes.filter((n) => n.hand === 'R');
+    if (!r.length) return [];
+    const top = r.reduce((a, b) => (b.midi > a.midi ? b : a));
+    return [{ midi: top.midi, beat: st.beat, dur: top.len ?? st.dur }];
+  });
+}
+
+/** 코드 붙여 반주 만들기: 오른손 멜로디는 그대로, 왼손을 코드로 새로 */
+function ArrangeCard({ piece, fifths, onMade }: { piece: Piece; fifths?: number; onMade: (o: Open) => void }) {
+  const bars = barCount(piece.steps, piece.beats);
+  const [openCard, setOpenCard] = useState(false);
+  const [text, setText] = useState(() => (piece.chords?.length ? barsText(piece.chords, piece.beats, bars) : ''));
+  const [kind, setKind] = useState<LeftKind>('bass');
+  const [msg, setMsg] = useState<string | null>(null);
+  const auto = () => {
+    const mel = melodyOf(piece);
+    if (!mel.length) { setMsg('오른손 멜로디가 없어요.'); return; }
+    const r = harmonize(mel, { beatsPerBar: piece.beats, fifths });
+    setText(barsText(r.spans, piece.beats, bars));
+    setMsg(`${r.key.name} 조로 보고 코드를 붙였어요. 마음에 안 드는 마디는 고쳐 쓰세요.`);
+  };
+  const make = async () => {
+    const { spans, errors } = parseBarsText(text, piece.beats);
+    if (errors.length) { setMsg(`못 읽은 코드: ${errors.join(', ')}`); return; }
+    if (!spans.length) { setMsg('코드를 적거나 자동으로 붙여 주세요.'); return; }
+    const right = onlyHand(piece.steps, 'R');
+    const total = Math.max(totalBeats(piece.steps), bars * piece.beats);
+    const steps = mergeHands(right, leftHand(spans, kind, piece.beats), total);
+    const k = LEFT_KINDS.find((x) => x.id === kind)!;
+    const song: Song = { title: `${piece.title.replace(/ · 반주\(.*\)$/, '')} · 반주(${k.title})`, beats: piece.beats, timeNum: piece.timeNum ?? piece.beats, timeDen: piece.timeDen ?? 4, bpm: piece.bpm, steps, origin: 'import', createdAt: Date.now(), chords: spans, pedalAt: spans.map((s) => s.beat), fifths };
+    const id = await db.songs.add(song);
+    notify();
+    onMade({ piece: pieceOfSong({ ...song, id }), note: '오른손 멜로디 + 왼손 반주 (내 곡에 저장됨)', fifths });
+  };
+  if (!openCard) return <button className="secondary wide" onClick={() => setOpenCard(true)} data-testid="arrange-open">🎹 코드 붙여 왼손 반주 만들기</button>;
+  return (
+    <div className="card" data-testid="arrange">
+      <div className="card-head"><b>코드 붙여 반주 만들기</b><button className="mini" onClick={() => setOpenCard(false)} aria-label="닫기">✕</button></div>
+      <p className="hint">마디마다 코드를 <b>|</b> 로 나눠 적어요. 한 마디에 둘이면 띄어 쓰기 (<b>Am F</b>), 앞 마디 그대로는 <b>%</b>. 찬양 악보의 코드를 그대로 옮겨 적으면 돼요.</p>
+      <textarea className="chord-text" rows={3} value={text} onChange={(e) => setText(e.target.value)} placeholder="C | G | Am F | G" data-testid="arrange-text" />
+      <div className="row"><button className="secondary" onClick={auto} data-testid="arrange-auto">멜로디로 코드 자동 붙이기</button></div>
+      <div className="chips">{LEFT_KINDS.map((x) => <button key={x.id} className={`chip mini${kind === x.id ? ' on' : ''}`} onClick={() => setKind(x.id)} title={x.note} data-testid={`left-${x.id}`}>{x.title}</button>)}</div>
+      <p className="hint">{LEFT_KINDS.find((x) => x.id === kind)!.note}</p>
+      <button className="primary" onClick={() => void make()} data-testid="arrange-make">반주 악보 만들기</button>
+      {msg && <p className="hint" data-testid="arrange-msg">{msg}</p>}
+    </div>
+  );
+}
+
+type Open = { piece: Piece; composer?: string; note?: string; warnings?: string[]; fifths?: number };
 
 export function Songs() {
   const runs = useRuns();
@@ -30,6 +86,7 @@ export function Songs() {
           {open.warnings?.map((w) => <p key={w} className="hint">⚠ {w}</p>)}
         </div>
         <PlayRunner key={p.id} ex={p} lessonId="song" song />
+        <ArrangeCard piece={p} fifths={open.fifths} onMade={(o) => setOpen(o)} />
       </div>
     );
   }
@@ -42,7 +99,7 @@ export function Songs() {
       try {
         const xml = await readScoreFile(f);
         const s = parseMusicXML(xml);
-        await db.songs.add({ title: s.title, composer: s.composer, beats: s.beats, timeNum: s.timeNum, timeDen: s.timeDen, bpm: s.bpm ?? 80, steps: s.steps, origin: 'import', fileName: f.name, createdAt: Date.now(), warnings: s.warnings });
+        await db.songs.add({ title: s.title, composer: s.composer, beats: s.beats, timeNum: s.timeNum, timeDen: s.timeDen, bpm: s.bpm ?? 80, steps: s.steps, origin: 'import', fileName: f.name, createdAt: Date.now(), warnings: s.warnings, fifths: s.fifths });
         ok.push(s.title);
       } catch (e) { bad.push(`${f.name} (${(e as Error).message})`); }
     }
@@ -52,8 +109,8 @@ export function Songs() {
     if (file.current) file.current.value = '';
   };
 
-  const pieceOfBuiltin = (b: (typeof BUILTIN_SONGS)[number]): Piece => ({ id: `song:${b.key}`, title: b.title, steps: b.steps, bpm: b.bpm, beats: b.beats, timeNum: b.timeNum, timeDen: b.timeDen, modes: ['wait', 'timed'] });
-  const pieceOfSong = (s: Song): Piece => ({ id: `song:u${s.id}`, title: s.title, steps: s.steps, bpm: s.bpm, beats: s.beats, timeNum: s.timeNum, timeDen: s.timeDen, modes: ['wait', 'timed'] });
+  const pieceOfBuiltin = (b: (typeof BUILTIN_SONGS)[number]): Piece => ({ id: `song:${b.key}`, title: b.title, steps: b.steps, bpm: b.bpm, beats: b.beats, timeNum: b.timeNum, timeDen: b.timeDen, modes: ['wait', 'timed'], chords: b.chords });
+  
   const meta = (id: string) => {
     const rs = runs.filter((r) => r.exId === id);
     if (!rs.length) return null;
@@ -94,7 +151,7 @@ export function Songs() {
             const m = meta(p.id);
             return (
               <li key={s.id} className="song-row">
-                <button className="ex-item" onClick={() => setOpen({ piece: p, composer: s.composer, warnings: s.warnings })} data-testid={`mysong-${s.id}`}>
+                <button className="ex-item" onClick={() => setOpen({ piece: p, composer: s.composer, warnings: s.warnings, fifths: s.fifths })} data-testid={`mysong-${s.id}`}>
                   <span className="ln">♪</span>
                   <span className="lt"><b>{s.title}</b><small>{[s.composer, s.fileName].filter(Boolean).join(' · ')}</small></span>
                   {m && <span className="lp">{m}</span>}

@@ -16,7 +16,9 @@ describe('레슨 데이터', () => {
     for (const l of LESSONS) for (const e of l.exercises) {
       if (e.kind !== 'play') continue;
       expect(totalBeats(e.steps) % e.beats, `${e.id} 마디`).toBe(0);
-      for (const hand of ['R', 'L'] as const) {
+      // 코드(한 손 세 음 이상)를 누르는 연습은 손가락이 코드마다 달라서 빼고
+      const chordal = e.steps.some((s) => s.notes.filter((n) => n.hand === 'R').length >= 3);
+      for (const hand of (chordal ? [] : ['R', 'L']) as ('R' | 'L')[]) {
         const map = new Map<number, number>();
         for (const s of e.steps) for (const n of s.notes) {
           expect(n.midi, e.id).toBeGreaterThanOrEqual(36);
@@ -69,5 +71,23 @@ describe('오늘의 연습', () => {
     expect(p[0].exId).toBe('l2-up');
     expect(p[1].exId).toBe('l3-bihaenggi');
     expect(p[2].exId).toBe('l2-skip'); // 통과한 것 중 점수 낮은 것
+  });
+});
+
+import { parseChord } from '../src/music/chordbook';
+import { BUILTIN_SONGS } from '../src/songs/builtin';
+describe('코드 레슨·기본 곡 코드', () => {
+  it('코드 연습의 코드는 모두 읽힘, 반주 연습은 코드·페달 박이 있음', () => {
+    for (const l of LESSONS) for (const e of l.exercises) {
+      if (e.kind === 'chords') for (const c of e.chords) expect(parseChord(c), `${e.id} ${c}`).toBeTruthy();
+      if (e.kind === 'play' && e.chords) { expect(e.steps.length).toBeGreaterThan(0); expect(totalBeats(e.steps) % e.beats).toBe(0); }
+    }
+  });
+  it('기본 곡 코드가 마디 수와 맞음', () => {
+    for (const s of BUILTIN_SONGS) {
+      expect(s.chords?.length, s.key).toBeGreaterThan(0);
+      const end = s.chords![s.chords!.length - 1];
+      expect(end.beat + end.dur, s.key).toBe(totalBeats(s.steps));
+    }
   });
 });

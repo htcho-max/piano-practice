@@ -174,3 +174,26 @@ export function verdictLine(r: WaitResult | TimedResult, timedNext = true): stri
 }
 
 export const PASS_SCORE = 80;
+
+/* ───────── 페달 바꾸기 (레가토 페달): 코드가 바뀌는 박 직후에 뗐다가 다시 밟기 ───────── */
+export type PedalEv = { time: number; value: number };
+export type PedalResult = { ok: number; total: number; used: boolean; late: number; early: number };
+
+/**
+ * changeTimes: 코드가 바뀌는 시각(ms). 처음 것은 "밟기만" 하면 됨.
+ * 맞음 = 바뀌는 시각 −120ms ~ +450ms 사이에 뗌(<64) → 그 뒤 700ms 안에 다시 밟음(≥64)
+ * early = 바뀌기 전에 미리 뗐다 밟음(소리가 끊김), late = 너무 늦게 바꿈(앞 코드와 섞임)
+ */
+export function gradePedal(changeTimes: number[], evs: PedalEv[]): PedalResult {
+  const down = (v: number) => v >= 64;
+  const used = evs.some((e) => down(e.value));
+  let ok = 0, late = 0, early = 0;
+  changeTimes.forEach((t, i) => {
+    if (i === 0) { if (evs.some((e) => down(e.value) && e.time >= t - 1500 && e.time <= t + 800)) ok++; return; }
+    const up = evs.find((e) => !down(e.value) && e.time >= t - 120 && e.time <= t + 450);
+    if (up && evs.some((e) => down(e.value) && e.time > up.time && e.time <= up.time + 700)) { ok++; return; }
+    if (evs.some((e) => !down(e.value) && e.time > t + 450 && e.time <= t + 1200)) late++;
+    else if (evs.some((e) => !down(e.value) && e.time >= t - 800 && e.time < t - 120)) early++;
+  });
+  return { ok, total: changeTimes.length, used, late, early };
+}

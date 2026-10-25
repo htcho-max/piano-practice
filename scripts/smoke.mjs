@@ -64,7 +64,7 @@ try {
     ok((await text(page.locator('.toast'))).includes('Roland Digital Piano'), '연결 알림');
 
     // 2. 건반 탭: 누른 음과 코드
-    await tab(page, '건반');
+    await tab(page, '코드'); await page.getByTestId('sub-free').click();
     await page.evaluate(() => { window.__on(60); window.__on(64); window.__on(67); window.__midi([0xb0, 64, 127]); });
     await wait(page, 200);
     ok((await text(page.getByTestId('held'))).startsWith('도(C4) 미(E4) 솔(G4)'), `누른 음 표시: ${await text(page.getByTestId('held'))}`);
@@ -263,6 +263,83 @@ try {
     ok((await text(page.locator('.ex-head'))).includes('도돌이표'), '도돌이표 안내');
     await page.screenshot({ path: 'scripts/shot-import.png', fullPage: true });
 
+
+    // 13. v0.4 — 코드·반주
+    await tab(page, '코드');
+    await page.getByTestId('sub-dict').click();
+    await page.getByTestId('root-7').click();
+    ok((await text(page.getByTestId('dict-name'))) === 'G', '코드 사전 G');
+    await page.evaluate(() => { [59, 62, 67].forEach((n) => window.__on(n)); });
+    await wait(page, 150);
+    ok((await text(page.getByTestId('dict-check'))).includes('✓ G'), `자리바꿈으로 눌러도 G (${await text(page.getByTestId('dict-check'))})`);
+    await page.evaluate(() => { [59, 62, 67].forEach((n) => window.__off(n)); });
+    await page.getByTestId('sub-drill').click();
+    await page.getByTestId('prog').selectOption('basic');
+    await page.getByTestId('key-C').click();
+    await wait(page, 300);
+    const CH = { C: [48, 60, 64, 67], F: [41, 60, 65, 69], G: [43, 59, 62, 67] };
+    for (const name of ['C', 'F', 'G', 'C', 'C', 'F', 'G', 'C']) {
+      ok((await text(page.getByTestId('chord-now'))) === name, `지금 코드 ${name}`);
+      if (name === 'F' && (await page.locator('.chord-progress .done').count()) === 1) { await tap(page, 61); await wait(page, 80); } // 틀린 음 한 번
+      await page.evaluate((ns) => { ns.forEach((n) => window.__on(n)); }, CH[name]);
+      await wait(page, 120);
+      await page.evaluate((ns) => { ns.forEach((n) => window.__off(n)); }, CH[name]);
+      await wait(page, 80);
+    }
+    await page.getByTestId('result').waitFor({ timeout: 3000 });
+    ok((await text(page.getByTestId('score'))) === '97점', `코드 바꾸기 ${await text(page.getByTestId('score'))} (틀린 음 1)`);
+    // 반주 패턴 + 페달 채점 (길게 누르기, C G Am F 두 바퀴, ♩66 → 빠르게 ♩120)
+    await page.getByTestId('sub-acc').click();
+    await page.getByTestId('prog').selectOption('pop');
+    await page.getByTestId('key-C').click();
+    await page.getByTestId('pat-block').click();
+    ok(await page.locator('[data-testid="chord-sym"]').count() === 8, `악보 위 코드 이름 ${await page.locator('[data-testid="chord-sym"]').count()}개`);
+    await page.getByTestId('mode-timed').click();
+    for (let i = 0; i < 9; i++) await page.getByRole('button', { name: '빠르게' }).click(); // 66 → 102
+    await page.evaluate(() => { window.__pianoT0 = undefined; });
+    await page.getByTestId('timed-start').click();
+    await page.waitForFunction(() => typeof window.__pianoT0 === 'number');
+    const notesOf = await page.evaluate(() => null);
+    void notesOf;
+    // 각 마디: 왼손 베이스 + 오른손 자리 (화면에 그려진 음표의 data-midi 로)
+    const pairs = await page.locator('[data-testid="staff"] .note').evaluateAll((els) => els.map((e) => [Number(e.getAttribute('data-step')), e.getAttribute('data-midi')]));
+    const byStep = new Map(); for (const [st, ms] of pairs) byStep.set(st, [...(byStep.get(st) ?? []), ...ms.split(',').map(Number)]);
+    const midis = [...byStep.keys()].sort((a, b) => a - b).map((k) => [...new Set(byStep.get(k))]);
+    await page.evaluate(({ midis, bpm }) => {
+      const t0 = window.__pianoT0, spb = 60000 / bpm;
+      const send = (at, f) => setTimeout(f, Math.max(0, at - performance.now()));
+      midis.forEach((ns, i) => {
+        const at = t0 + i * 4 * spb;
+        send(at, () => ns.forEach((n) => window.__on(n)));
+        send(at + 4 * spb - 40, () => ns.forEach((n) => window.__off(n)));
+        if (i === 0) send(at - 300, () => window.__midi([0xb0, 64, 127]));
+        else if (i !== 3) { send(at + 120, () => window.__midi([0xb0, 64, 0])); send(at + 220, () => window.__midi([0xb0, 64, 127])); }
+      });
+    }, { midis, bpm: 102 });
+    await page.getByTestId('result').waitFor({ timeout: 30000 });
+    ok((await text(page.getByTestId('pedal-result'))).includes('7/8'), `페달 채점 ${await text(page.getByTestId('pedal-result'))}`);
+    ok((await text(page.getByTestId('score'))) === '100점', `반주 점수 ${await text(page.getByTestId('score'))}`);
+    await page.evaluate(() => window.__midi([0xb0, 64, 0]));
+    // 곡에 왼손 반주 만들기
+    await tab(page, '곡');
+    if (await page.getByRole('button', { name: /^‹ 곡 목록/ }).isVisible().catch(() => false)) await page.getByRole('button', { name: /^‹ 곡 목록/ }).click();
+    await page.getByTestId('song-nabi').click();
+    ok(await page.locator('[data-testid="chord-sym"]').count() >= 4, '기본 곡 코드 표시');
+    await page.getByTestId('arrange-open').click();
+    ok((await page.getByTestId('arrange-text').inputValue()).startsWith('C | G'), '기본 곡 코드가 채워짐');
+    await page.getByTestId('arrange-text').fill('');
+    await page.getByTestId('arrange-auto').click();
+    ok((await text(page.getByTestId('arrange-msg'))).includes('C 조'), `자동 코드: ${await text(page.getByTestId('arrange-msg'))}`);
+    await page.getByTestId('left-bass5').click();
+    await page.getByTestId('arrange-make').click();
+    await page.getByTestId('song-title').filter({ hasText: '반주(근음 + 5음)' }).waitFor({ timeout: 3000 });
+    ok(true, '반주 악보 만들어 열림');
+    ok(await page.locator('[data-testid="staff"] .note').count() >= 40, `반주 악보 음표 ${await page.locator('[data-testid="staff"] .note').count()}`);
+    // 레슨 17~21
+    await tab(page, '배우기');
+    if (await page.getByRole('button', { name: /^‹/ }).first().isVisible().catch(() => false)) await page.getByRole('button', { name: /^‹/ }).first().click();
+    ok(await page.getByTestId('lesson-21').isVisible(), '21과까지');
+
     // 8. 오늘·기록
     await tab(page, '오늘');
     await wait(page, 300);
@@ -292,7 +369,7 @@ try {
     await page.getByTestId('lesson-8').click();
     await page.getByTestId('ex-l8-joy').click();
     await page.screenshot({ path: 'scripts/shot-tablet.png' });
-    await tab(page, '건반');
+    await tab(page, '코드'); await page.getByTestId('sub-free').click();
     await page.getByRole('button', { name: '88건반 전체' }).click();
     ok(await page.locator('.key').count() === 88, '88건반');
     await page.screenshot({ path: 'scripts/shot-tablet-play.png' });

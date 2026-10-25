@@ -10,7 +10,7 @@ import type { Step, PNote, Hand } from './steps';
  */
 export type ParsedSong = {
   title: string; composer: string; beats: number; timeNum: number; timeDen: number; bpm: number | null;
-  steps: Step[]; bars: number; warnings: string[];
+  steps: Step[]; bars: number; warnings: string[]; fifths?: number;
 };
 
 type Ev = { beat: number; len: number; midi: number; hand: Hand; finger?: number; spell?: 'sharp' | 'flat'; tieStop: boolean; tieStart: boolean; voiceKey: string };
@@ -57,6 +57,7 @@ export function parseMusicXML(xml: string): ParsedSong {
   let bars = 0;
   let sawRepeat = false;
   let firstTime = true;
+  let fifths: number | undefined;
 
   for (const { part, handOf } of use) {
     let divisions = 1;
@@ -71,6 +72,7 @@ export function parseMusicXML(xml: string): ParsedSong {
         const tag = el.tagName;
         if (tag === 'attributes') {
           const d = txt(el, 'divisions'); if (d) divisions = Number(d) || divisions;
+          const kf = txt(el, 'key > fifths'); if (kf !== null && fifths === undefined) fifths = Number(kf);
           const b = txt(el, 'time > beats'); const bt = txt(el, 'time > beat-type');
           if (b && bt) {
             const nb = Number(b.split('+').reduce((a, x) => a + Number(x), 0));
@@ -168,7 +170,7 @@ export function parseMusicXML(xml: string): ParsedSong {
     steps.push({ beat: b, dur, notes });
   });
   if (!kept.length) throw new Error('악보에서 음을 찾지 못했어요.');
-  return { title, composer, beats: barBeats, timeNum, timeDen, bpm, steps, bars, warnings };
+  return { title, composer, beats: barBeats, timeNum, timeDen, bpm, steps, bars, warnings, fifths };
 }
 
 /* ── .mxl (zip) 풀기: 브라우저 DecompressionStream('deflate-raw') ── */

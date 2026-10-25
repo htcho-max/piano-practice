@@ -1,4 +1,5 @@
 import { parseSteps, type Step } from '../music/steps';
+import { accompany, parseBarsText, PATTERNS, type ChordSpan, type PatternId } from '../music/chordbook';
 
 export type Mode = 'wait' | 'timed';
 
@@ -9,13 +10,24 @@ export type Exercise =
   | { kind: 'find'; id: string; title: string; text: string; questions: FindQuestion[] }
   | { kind: 'read'; id: string; title: string; text: string; level: string; count: number }
   /** sheet: 악보 보고 치기 (처음부터 악보 화면 + 건반 힌트 끔) */
-  | { kind: 'play'; id: string; title: string; text: string; src: string; steps: Step[]; bpm: number; beats: number; modes: Mode[]; sheet?: boolean };
+  | { kind: 'play'; id: string; title: string; text: string; src: string; steps: Step[]; bpm: number; beats: number; modes: Mode[]; sheet?: boolean; chords?: ChordSpan[]; pedalAt?: number[] }
+  /** 코드 바꾸기 연습 */
+  | { kind: 'chords'; id: string; title: string; text: string; chords: string[]; rounds: number; modes: Mode[]; bpm: number };
 
 export type Lesson = { id: string; n: number; title: string; goal: string; body: string[]; tips: string[]; exercises: Exercise[] };
 
 const ALL = (pcs: number, lo = 21, hi = 108) => { const r: number[] = []; for (let m = lo; m <= hi; m++) if (m % 12 === pcs) r.push(m); return r; };
 const play = (id: string, title: string, text: string, src: string, opt: { bpm?: number; beats?: number; modes?: Mode[]; sheet?: boolean } = {}): Exercise =>
   ({ kind: 'play', id, title, text, src, steps: parseSteps(src), bpm: opt.bpm ?? 72, beats: opt.beats ?? 4, modes: opt.modes ?? ['wait', 'timed'], sheet: opt.sheet });
+const chords = (id: string, title: string, text: string, list: string[], o: { rounds?: number; modes?: Mode[]; bpm?: number } = {}): Exercise =>
+  ({ kind: 'chords', id, title, text, chords: list, rounds: o.rounds ?? 3, modes: o.modes ?? ['wait', 'timed'], bpm: o.bpm ?? 60 });
+/** 마디 코드 글 + 반주 패턴 → 연주 연습 (페달 채점 포함) */
+const acc = (id: string, title: string, text: string, bars: string, pat: PatternId, o: { bpm?: number; pedal?: boolean } = {}): Exercise => {
+  const beats = PATTERNS.find((x) => x.id === pat)!.beats;
+  const spans = parseBarsText(bars, beats).spans;
+  const r = accompany(spans, pat);
+  return { kind: 'play', id, title, text, src: '', steps: r.steps, bpm: o.bpm ?? 60, beats, modes: ['wait', 'timed'], sheet: true, chords: spans, pedalAt: o.pedal ? r.pedalAt : undefined };
+};
 const read = (id: string, title: string, text: string, level: string, count = 20): Exercise => ({ kind: 'read', id, title, text, level, count });
 
 /* 자주 쓰는 곡 (모두 저작권이 끝난 옛 곡) */
@@ -246,6 +258,71 @@ export const LESSONS: Lesson[] = [
     tips: ['8분음표 두 개(♫)는 한 박을 반씩', '왼손 파(F3)는 2번 손가락'],
     exercises: [
       play('l16-jingle', '악보 보고: 징글벨', '후렴 16마디. 왼손은 도(5)·파(2)·솔(1).', JINGLE_B, { bpm: 92, sheet: true }),
+    ],
+  },
+  {
+    id: 'l17', n: 17, title: '주요 3화음 C·F·G', goal: '코드 세 개로 반주의 뼈대 만들기',
+    body: [
+      '**코드(화음)**는 건반을 하나씩 건너뛴 세 음이에요. **C = 도·미·솔**, **F = 파·라·도**, **G = 솔·시·레**.',
+      '다장조에서 이 셋을 **I(1도)·IV(4도)·V(5도)**라고 불러요. 찬양 대부분이 이 세 코드에 몇 개를 더한 것이라, 이것만 손에 익어도 반주를 시작할 수 있어요.',
+      '오른손은 세 음을 **1·3·5번** 손가락으로 함께, 왼손은 코드 이름의 음(근음) 하나를 낮게 눌러요. 화면 아래 "코드" 탭의 코드 사전에서 모든 코드를 찾아볼 수 있어요.',
+    ],
+    tips: ['세 손가락이 동시에 닿게 — 손목을 살짝 떨어뜨리듯', '코드를 바꿀 때 손 모양은 그대로 들어 옮기기'],
+    exercises: [
+      chords('l17-drill', '코드 누르기: C F G', '화면의 코드를 누르면 다음으로 넘어가요. 자리는 아무 자리나 괜찮아요(아래 추천 자리 참고).', ['C', 'F', 'G', 'C'], { rounds: 3 }),
+      play('l17-block', '기본 자리로 C – F – G – C', '오른손 기본 자리(1-3-5), 왼손 근음. 손이 크게 움직여요.', 'L5:C3+R1:C4+R3:E4+R5:G4/w | L5:F2+R1:F4+R3:A4+R5:C5/w | L5:G2+R1:G4+R3:B4+R5:D5/w | L5:C3+R1:C4+R3:E4+R5:G4/w', { bpm: 60, sheet: true }),
+    ],
+  },
+  {
+    id: 'l18', n: 18, title: '자리바꿈', goal: '손을 덜 움직이고 코드 바꾸기',
+    body: [
+      '코드 음의 **순서를 바꿔 쌓는 것**을 자리바꿈(전위)이라고 해요. 도·미·솔을 미·솔·도나 솔·도·미로 눌러도 여전히 C 코드예요.',
+      '자리바꿈을 쓰면 **가까운 음끼리 이어져서** 손이 거의 안 움직여요: C(도미솔) → F(도파라) → G(시레솔) → C. 같은 음(도)은 그대로 두고 나머지만 옮기는 게 요령.',
+      '손가락: 위쪽 간격이 넓으면(4도) **1·2·5번**, 아래쪽이 넓으면 **1·3·5번**. 화면이 추천해 줘요.',
+    ],
+    tips: ['같은 음은 손가락을 떼지 말고 그대로', '눈은 다음 코드 이름에, 손은 가까운 자리로'],
+    exercises: [
+      acc('l18-close', '가까운 자리 C – F – G – C', '왼손 근음 + 오른손 가까운 자리. 기본 자리보다 훨씬 편할 거예요.', 'C | F | G | C | C | F | G | C', 'block', { bpm: 60 }),
+      chords('l18-drill', '코드 바꾸기: C G Am F', '가장 흔한 진행 I–V–vi–IV. Am = 라·도·미.', ['C', 'G', 'Am', 'F'], { rounds: 3 }),
+    ],
+  },
+  {
+    id: 'l19', n: 19, title: '반주 패턴', goal: '같은 코드를 리듬으로 채우기',
+    body: [
+      '코드를 길게 누르기만 하면 심심해요. 같은 코드를 **2박마다, 박마다** 다시 누르거나, 왼손을 **근음-5음-옥타브-5음**으로 펼치면 반주가 살아나요.',
+      '처음엔 느리게 기다려 주기로 손 순서를 익히고, 박자 맞춰로 템포를 올려요. "코드" 탭의 반주 패턴에서 다른 진행·조로도 연습할 수 있어요.',
+    ],
+    tips: ['오른손 코드는 가볍게, 왼손 근음은 조금 더 깊게', '펼친화음은 손목을 부드럽게 굴리듯'],
+    exercises: [
+      acc('l19-half', '두 박마다: C G Am F', '왼손은 마디 내내, 오른손 코드는 2박마다.', 'C | G | Am | F | C | G | Am | F', 'half', { bpm: 66 }),
+      acc('l19-arp', '왼손 펼친화음: C G Am F', '왼손 5-2-1-2 번 손가락으로 근음-5음-옥타브-5음.', 'C | G | Am | F | C | G | Am | F', 'arp', { bpm: 60 }),
+    ],
+  },
+  {
+    id: 'l20', n: 20, title: '페달', goal: '코드가 끊기지 않게 이어 주기',
+    body: [
+      '오른발 **댐퍼 페달**을 밟으면 손을 떼도 소리가 남아요. 그런데 계속 밟고 있으면 코드끼리 섞여 탁해져요.',
+      '**레가토 페달**: 새 코드를 **누른 바로 다음에** 페달을 뗐다가 곧바로 다시 밟아요. "누르고 → 떼고·밟고". 페달이 손보다 반 박쯤 늦게 따라간다고 생각하세요.',
+      '롤랜드 F107 은 페달을 얼마나 밟았는지까지 앱에 알려 줘요. 박자 맞춰로 치면 코드마다 페달을 제때 바꿨는지 채점해요.',
+    ],
+    tips: ['발뒤꿈치는 바닥에 붙이고 발 앞쪽으로만', '처음엔 손 없이 메트로놈에 맞춰 페달만 연습'],
+    exercises: [
+      acc('l20-block', '페달 바꾸기: C F G C', '코드는 길게, 바뀔 때마다 페달을 뗐다 다시 밟기.', 'C | F | G | C | C | F | G | C', 'block', { bpm: 56, pedal: true }),
+      acc('l20-quarter', '페달 + 4비트: C Am F G', '오른손은 박마다, 페달은 코드가 바뀔 때만.', 'C | Am | F | G | C | Am | F | G', 'quarter', { bpm: 66, pedal: true }),
+    ],
+  },
+  {
+    id: 'l21', n: 21, title: '찬양 반주 시작', goal: '찬양에 많은 조·진행으로 반주하기',
+    body: [
+      '찬양은 **G·D·A·E 장조**가 많아요. 같은 I–V–vi–IV 도 G 장조에서는 **G – D – Em – C**.',
+      '베이스가 한 음씩 내려가는 **C – G/B – Am – C/G – F – C/E – Dm – G** 같은 진행도 단골이에요. **G/B** 는 "G 코드인데 왼손은 시(B)"라는 뜻이에요.',
+      '곡 탭에서 찬양 악보(MusicXML)를 불러오고 **"코드 붙여 왼손 반주 만들기"**에 악보의 코드를 적으면, 오른손 멜로디 + 왼손 반주 악보가 만들어져요.',
+    ],
+    tips: ['코드 이름 뒤 /음 은 왼손 베이스', '8비트는 오른손을 가볍게, 1·3박 왼손에 무게'],
+    exercises: [
+      chords('l21-drill', '코드 바꾸기: G D Em C', 'G 장조의 I–V–vi–IV. Em = 미·솔·시, D = 레·파♯·라.', ['G', 'D', 'Em', 'C'], { rounds: 3 }),
+      chords('l21-down', '내려가는 베이스', '왼손이 도-시-라-솔-파-미-레-솔로 내려가요.', ['C', 'G/B', 'Am', 'C/G', 'F', 'C/E', 'Dm', 'G'], { rounds: 2 }),
+      acc('l21-eight', '8비트: G D Em C', '오른손 코드를 8분음표로, 왼손 근음은 1·3박.', 'G | D | Em | C | G | D | Em | C', 'eight', { bpm: 72 }),
     ],
   },
 ];

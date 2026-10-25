@@ -24,7 +24,9 @@ type Sys = { from: number; to: number; x0: number; first: boolean };
  * 큰보표(또는 한 오선) 악보. 지금 칸은 주황, 채점한 칸은 결과 색.
  * wrap 이면 화면 폭에 맞춰 여러 줄(태블릿에서 곡 전체가 한눈에), 아니면 한 줄로 가로 스크롤.
  */
-export function Staff({ steps, beats = 4, timeNum, timeDen = 4, mode = 'grand', cur = -1, states = [], fingers = false, total, highlight, testid = 'staff', bare = false, wrap = false, barOffset = 0 }: {
+export function Staff({ steps, beats = 4, timeNum, timeDen = 4, mode = 'grand', cur = -1, states = [], fingers = false, total, highlight, testid = 'staff', bare = false, wrap = false, barOffset = 0, chords }: {
+  /** 악보 위 코드 이름 */
+  chords?: { beat: number; name: string }[];
   steps: Step[]; beats?: number; timeNum?: number; timeDen?: number; mode?: StaffMode; cur?: number; states?: StepState[]; fingers?: boolean; total?: number;
   highlight?: (step: number) => string | undefined; testid?: string;
   /** 음표 읽기용: 박자표·쉼표 없이 음만 */
@@ -45,7 +47,8 @@ export function Staff({ steps, beats = 4, timeNum, timeDen = 4, mode = 'grand', 
     setBoxW(b.clientWidth);
     return () => ro.disconnect();
   }, [wrap]);
-  const top = (c: Clef) => (lay.staves.length === 2 && c === 'bass' ? TOP + 4 * SP + GAP : TOP);
+  const T0 = TOP + (chords?.length ? 16 : 0); // 코드 이름 자리
+  const top = (c: Clef) => (lay.staves.length === 2 && c === 'bass' ? T0 + 4 * SP + GAP : T0);
   const height = top(lay.staves[lay.staves.length - 1]) + 4 * SP + 40;
   const num = timeNum ?? beats;
   const HEAD_X = bare ? 84 : 92; // 첫 줄 머리(자리표+박자표) 너비
@@ -139,6 +142,10 @@ export function Staff({ steps, beats = 4, timeNum, timeDen = 4, mode = 'grand', 
               </g>
             ))}
             {barList.filter((b) => b.beat > sy.from + 1e-6 && b.beat < sy.to - 1e-6).map((b) => <line key={b.beat} x1={b.x + shift} x2={b.x + shift} y1={yTop} y2={yBot} className="bar-line" />)}
+            {chords?.filter((c) => inRange(c.beat)).map((c) => {
+              const at = lay.onsets.find((o) => o >= c.beat - 1e-6) ?? c.beat;
+              return <text key={`c${c.beat}`} x={(xs.get(at) ?? 0) + shift} y={16} className="chord-sym" data-testid="chord-sym">{c.name}</text>;
+            })}
             {!last && <line x1={w - 1} x2={w - 1} y1={yTop} y2={yBot} className="bar-line" />}
             {last && !bare && <line x1={w - 8} x2={w - 8} y1={yTop} y2={yBot} className="bar-line" />}
             {last && !bare && <line x1={w - 4} x2={w - 4} y1={yTop} y2={yBot} className="bar-line end" />}

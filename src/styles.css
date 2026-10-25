@@ -225,3 +225,17 @@ h2 { margin: 0; font-size: 20px; }
 .bar-no { font-size: 10px; fill: var(--muted); }
 .song-row { display: flex; gap: 6px; align-items: center; } .song-row .ex-item { flex: 1; } .song-tools { gap: 8px; }
 .tie { fill: none; stroke: currentColor; stroke-width: 1.4; }
+.chord-sym { font-size: 14px; font-weight: 800; fill: var(--accent); }
+
+/* 코드 */
+.root-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
+.chord-now { align-items: center; text-align: center; border-width: 2px; }
+.chord-now.ok { border-color: var(--good); }
+.chord-big { font-size: 48px; font-weight: 800; line-height: 1.1; }
+.chord-progress { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; font-size: 13px; }
+.chord-progress span { padding: 2px 8px; border-radius: 8px; background: var(--surface-2); color: var(--muted); }
+.chord-progress span.done { color: var(--good); }
+.chord-progress span.cur { background: var(--accent); color: var(--accent-ink); font-weight: 800; }
+.segmented[role=tablist] { position: sticky; top: 0; z-index: 5; }
+.chord-text { width: 100%; font: 16px/1.5 ui-monospace, monospace; padding: 8px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); }
+.segmented button { white-space: nowrap; }

@@ -76,3 +76,17 @@ describe('박자 맞춰', () => {
     expect(g.stepAt(1500)).toBe(1);
   });
 });
+
+import { gradePedal } from '../src/practice/grader';
+describe('페달 바꾸기', () => {
+  it('바뀔 때 뗐다 밟기', () => {
+    const r = gradePedal([0, 2000, 4000, 6000], [
+      { time: 50, value: 127 },
+      { time: 2100, value: 0 }, { time: 2250, value: 127 }, // 맞음
+      { time: 3500, value: 0 }, { time: 3600, value: 127 }, // 너무 일찍
+      { time: 6900, value: 0 }, { time: 7000, value: 127 }, // 너무 늦게
+    ]);
+    expect(r).toEqual({ ok: 2, total: 4, used: true, late: 1, early: 1 });
+    expect(gradePedal([0, 1000], []).used).toBe(false);
+  });
+});

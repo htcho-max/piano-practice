@@ -7,11 +7,13 @@ import { FindRunner } from '../components/FindRunner';
 import { PlayRunner } from '../components/PlayRunner';
 import { Rich } from '../components/Rich';
 import { ReadRunner } from '../components/ReadRunner';
+import { ChordDrill } from '../components/ChordDrill';
 import { READ_LEVELS, findLevel } from '../practice/reading';
 
 function exKind(e: Exercise): string {
   if (e.kind === 'find') return '건반 찾기';
   if (e.kind === 'read') return '음표 읽기 퀴즈';
+  if (e.kind === 'chords') return '코드 바꾸기';
   const how = e.modes.includes('timed') ? (e.modes.includes('wait') ? '기다려 주기 → 박자 맞춰' : '박자 맞춰') : '기다려 주기';
   return e.sheet ? `악보 보고 · ${how}` : how;
 }
@@ -51,7 +53,7 @@ export function Learn({ target }: { target: LearnTarget }) {
         <div className="page">
           <div className="crumbs"><button className="link" onClick={() => setExId(null)}>‹ {lesson.n}과 {lesson.title}</button></div>
           <div className="ex-head"><h2 data-testid="ex-title">{ex.title}</h2><p className="hint">{ex.text}</p></div>
-          {ex.kind === 'find' ? <FindRunner key={ex.id} ex={ex} lesson={lesson} onDone={onDone} /> : ex.kind === 'read' ? <ReadRunner key={ex.id} levelId={ex.level} count={ex.count} exId={ex.id} lesson={lesson} onDone={onDone} /> : <PlayRunner key={ex.id} ex={ex} lessonId={lesson.id} onDone={onDone} />}
+          {ex.kind === 'find' ? <FindRunner key={ex.id} ex={ex} lesson={lesson} onDone={onDone} /> : ex.kind === 'chords' ? <ChordDrill key={ex.id} id={ex.id} lessonId={lesson.id} chords={ex.chords} rounds={ex.rounds} modes={ex.modes} bpm={ex.bpm} onDone={onDone} /> : ex.kind === 'read' ? <ReadRunner key={ex.id} levelId={ex.level} count={ex.count} exId={ex.id} lesson={lesson} onDone={onDone} /> : <PlayRunner key={ex.id} ex={ex} lessonId={lesson.id} onDone={onDone} />}
         </div>
       );
     }
@@ -92,7 +94,7 @@ export function Learn({ target }: { target: LearnTarget }) {
           );
         })}
       </ul>
-      <p className="hint">다음 단계(코드와 찬양 반주, 음계)는 차례로 추가돼요. 곡은 아래 ♫ 곡 탭에서 연습해요.</p>
+      <p className="hint">다음 단계(음계와 넘기기)는 차례로 추가돼요. 곡은 ♫ 곡 탭, 코드·반주 패턴은 ▥ 코드 탭에서도 연습해요.</p>
     </div>
   );
 }
