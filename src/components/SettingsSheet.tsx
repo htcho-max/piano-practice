@@ -2,6 +2,32 @@ import { useSettings, setSettings } from '../state/settings';
 import { piano } from '../audio/piano';
 import { resumeAudio } from '../audio/context';
 import { useMidi } from '../state/live';
+import { useRef, useState } from 'react';
+import { exportBackup, importBackup, download } from '../data/backup';
+import { localDate } from '../data/dates';
+
+function BackupRow() {
+  const [msg, setMsg] = useState<string | null>(null);
+  const file = useRef<HTMLInputElement>(null);
+  return (
+    <div className="row-setting col">
+      <span>백업</span>
+      <div className="row">
+        <button className="secondary" onClick={async () => { download(await exportBackup(), `피아노-백업-${localDate()}.json`); setMsg('백업 파일을 저장했어요 (다운로드 폴더).'); }} data-testid="backup-save">백업 파일 저장</button>
+        <button className="secondary" onClick={() => file.current?.click()}>백업 불러오기</button>
+        <input ref={file} type="file" accept=".json,application/json" hidden data-testid="backup-file" onChange={async (e) => {
+          const f = e.target.files?.[0];
+          if (!f) return;
+          if (!confirm('지금 기기의 기록·곡을 백업 파일 내용으로 바꿀까요?')) return;
+          try { const r = await importBackup(await f.text()); setMsg(`불러왔어요: 연습 기록 ${r.runs}개, 곡 ${r.songs}개`); } catch (err) { setMsg(String((err as Error).message)); }
+          e.target.value = '';
+        }} />
+      </div>
+      <span className="hint">기록은 이 기기 브라우저 안에만 있어요. 가끔 백업 파일을 저장해 두세요.</span>
+      {msg && <span className="hint" data-testid="backup-msg">{msg}</span>}
+    </div>
+  );
+}
 
 export function SettingsSheet({ onClose }: { onClose: () => void }) {
   const s = useSettings();
@@ -34,6 +60,7 @@ export function SettingsSheet({ onClose }: { onClose: () => void }) {
         </div>
         <label className="row-setting"><input type="checkbox" checked={s.computerKeys} onChange={(e) => setSettings({ computerKeys: e.target.checked })} />컴퓨터 키보드로 치기</label>
         <p className="hint">피아노: {m.status === 'ready' ? (m.devices.length ? m.devices.join(', ') : '연결된 기기 없음') : m.status === 'unsupported' ? 'Web MIDI 미지원 브라우저' : '연결 전'}</p>
+        <BackupRow />
         <p className="muted small">버전 {__APP_VERSION__}</p>
       </div>
     </div>

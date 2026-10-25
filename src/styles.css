@@ -245,3 +245,6 @@ h2 { margin: 0; font-size: 20px; }
 .chip.on.done { color: var(--accent-ink); }
 @media (max-width: 600px) { .scale-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
 .beam { stroke: currentColor; stroke-width: 4.5; }
+.prompt { white-space: pre-wrap; font-size: 12px; background: var(--surface-2); padding: 10px; border-radius: 10px; max-height: 260px; overflow: auto; margin: 0; }
+.song-edit summary { cursor: pointer; font-weight: 700; }
+.song-edit[open] { gap: 10px; }

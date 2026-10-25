@@ -11,6 +11,8 @@ import type { Step, PNote, Hand } from './steps';
 export type ParsedSong = {
   title: string; composer: string; beats: number; timeNum: number; timeDen: number; bpm: number | null;
   steps: Step[]; bars: number; warnings: string[]; fifths?: number;
+  /** <harmony> 코드 기호 (있으면) */
+  chords: { name: string; beat: number; dur: number }[];
 };
 
 type Ev = { beat: number; len: number; midi: number; hand: Hand; finger?: number; spell?: 'sharp' | 'flat'; tieStop: boolean; tieStart: boolean; voiceKey: string };
@@ -58,6 +60,7 @@ export function parseMusicXML(xml: string): ParsedSong {
   let sawRepeat = false;
   let firstTime = true;
   let fifths: number | undefined;
+  const harm: { name: string; beat: number }[] = [];
 
   for (const { part, handOf } of use) {
     let divisions = 1;
@@ -97,6 +100,10 @@ export function parseMusicXML(xml: string): ParsedSong {
         } else if (tag === 'forward') {
           cursor += Number(txt(el, 'duration') ?? 0);
           maxCursor = Math.max(maxCursor, cursor);
+        } else if (tag === 'harmony' && part === use[0].part) {
+          const name = harmonyName(el);
+          const off = Number(txt(el, 'offset') ?? 0);
+          if (name) harm.push({ name, beat: r3(measureStart + (cursor + off) / divisions) });
         } else if (tag === 'note') {
           if (el.querySelector('grace') || el.querySelector('cue')) continue;
           const dur = Number(txt(el, 'duration') ?? 0);
@@ -170,7 +177,9 @@ export function parseMusicXML(xml: string): ParsedSong {
     steps.push({ beat: b, dur, notes });
   });
   if (!kept.length) throw new Error('악보에서 음을 찾지 못했어요.');
-  return { title, composer, beats: barBeats, timeNum, timeDen, bpm, steps, bars, warnings, fifths };
+  harm.sort((a, b) => a.beat - b.beat);
+  const chords = harm.filter((h, i) => i === 0 || h.name !== harm[i - 1].name).map((h, i, a) => ({ name: h.name, beat: h.beat, dur: r3((a[i + 1]?.beat ?? total) - h.beat) }));
+  return { title, composer, beats: barBeats, timeNum, timeDen, bpm, steps, bars, warnings, fifths, chords };
 }
 
 /* ── .mxl (zip) 풀기: 브라우저 DecompressionStream('deflate-raw') ── */
@@ -220,4 +229,27 @@ export async function unzipMxl(buf: ArrayBuffer): Promise<string> {
 export async function readScoreFile(file: File): Promise<string> {
   if (/\.mxl$/i.test(file.name)) return unzipMxl(await file.arrayBuffer());
   return file.text();
+}
+
+/** <harmony> → 코드 이름 ("G/B", "Am7" …) */
+const KIND: Record<string, string> = {
+  major: '', minor: 'm', dominant: '7', 'major-seventh': 'maj7', 'minor-seventh': 'm7', diminished: 'dim', augmented: 'aug',
+  'suspended-fourth': 'sus4', 'suspended-second': 'sus2', 'major-sixth': '6', 'minor-sixth': 'm6', 'half-diminished': 'm7b5',
+  'diminished-seventh': 'dim7', 'dominant-ninth': '7', 'major-ninth': 'maj7', 'minor-ninth': 'm7', power: '5', 'major-minor': 'm',
+};
+function harmonyName(el: Element): string | null {
+  const step = txt(el, 'root > root-step');
+  if (!step) return null;
+  const alter = Number(txt(el, 'root > root-alter') ?? 0);
+  const kindEl = el.querySelector('kind');
+  const kind = kindEl?.textContent?.trim() ?? 'major';
+  const text = kindEl?.getAttribute('text');
+  let suf = KIND[kind] ?? '';
+  if (kind === 'major' && text && /^(2|add9|add2)$/.test(text)) suf = '2';
+  if (kind === 'power') suf = '';
+  const acc = (a: number) => (a > 0 ? '#' : a < 0 ? 'b' : '');
+  let name = step + acc(alter) + suf;
+  const bs = txt(el, 'bass > bass-step');
+  if (bs) name += '/' + bs + acc(Number(txt(el, 'bass > bass-alter') ?? 0));
+  return name;
 }

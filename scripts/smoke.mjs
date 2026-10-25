@@ -363,6 +363,36 @@ try {
     if (await page.getByRole('button', { name: /^‹/ }).first().isVisible().catch(() => false)) await page.getByRole('button', { name: /^‹/ }).first().click();
     ok(await page.getByTestId('lesson-25').isVisible(), '25과까지');
 
+
+    // 15. v0.6 — 글 악보 붙여넣기, 조 옮기기, 백업
+    await tab(page, '곡');
+    if (await page.getByRole('button', { name: /^‹ 곡 목록/ }).isVisible().catch(() => false)) await page.getByRole('button', { name: /^‹ 곡 목록/ }).click();
+    await page.getByTestId('paste-open').click();
+    await page.getByTestId('prompt-show').click();
+    ok((await text(page.getByTestId('prompt'))).includes('@CHORDS'), '사진 악보 요청 글');
+    await page.getByTestId('paste-text').fill('@TITLE 붙여넣은 찬양\n@TIME 4/4\n@KEY G\n@BPM 70\n@CHORDS G | D | Em C | G\nR: 3:B4/q A4/q G4/h | A4/q B4/q A4/h | G4/q E4/q G4/q A4/q | G4/w\nL: G2/w | D3/w | E3/h C3/h | G2/w');
+    await page.getByTestId('paste-check').click();
+    ok((await text(page.getByTestId('paste-msg'))).includes('좋아요'), `글 악보 확인: ${await text(page.getByTestId('paste-msg'))}`);
+    await page.getByTestId('paste-save').click();
+    await page.getByTestId('song-title').filter({ hasText: '붙여넣은 찬양' }).waitFor({ timeout: 3000 });
+    ok(await page.locator('[data-testid="chord-sym"]').count() === 5, `붙여넣은 곡 코드 ${await page.locator('[data-testid="chord-sym"]').count()}`);
+    ok((await text(page.getByTestId('bpm'))) === '♩70', '붙여넣은 곡 템포');
+    await page.locator('.song-edit summary').click();
+    await page.getByTestId('tr-up').click(); await page.getByTestId('tr-up').click();
+    ok((await text(page.getByTestId('tr-label'))).startsWith('G → A'), `조 옮기기 표시 ${await text(page.getByTestId('tr-label'))}`);
+    await page.getByTestId('tr-save').click();
+    await page.getByTestId('song-title').filter({ hasText: 'G→A' }).waitFor({ timeout: 3000 });
+    ok((await page.locator('[data-testid="chord-sym"]').allTextContents()).join(' ') === 'A E F#m D A', `옮긴 코드 ${(await page.locator('[data-testid="chord-sym"]').allTextContents()).join(' ')}`);
+    // 백업 저장 → 불러오기
+    await page.getByRole('button', { name: '설정' }).click();
+    const [dl] = await Promise.all([page.waitForEvent('download'), page.getByTestId('backup-save').click()]);
+    const bpath = await dl.path();
+    page.once('dialog', (d) => d.accept());
+    await page.getByTestId('backup-file').setInputFiles(bpath);
+    await page.getByTestId('backup-msg').filter({ hasText: '불러왔어요' }).waitFor({ timeout: 5000 });
+    ok(/곡 [3-9]개/.test(await text(page.getByTestId('backup-msg'))), `백업 불러오기: ${await text(page.getByTestId('backup-msg'))}`);
+    await page.getByRole('button', { name: '닫기' }).click();
+
     // 8. 오늘·기록
     await tab(page, '오늘');
     await wait(page, 300);

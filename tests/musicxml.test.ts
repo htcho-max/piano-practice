@@ -27,6 +27,10 @@ describe('MusicXML 읽기', () => {
     expect(bb.notes.map((n) => [n.midi, n.spell])).toEqual([[50, undefined], [70, 'flat']]); // forward 뒤 왼손 D3 와 같은 박
     expect(s.steps.flatMap((x) => x.notes).some((n) => n.midi === 72)).toBe(false);
   });
+  it('코드 기호(harmony)', () => {
+    expect(s.chords).toEqual([{ name: 'G', beat: 0, dur: 5 }, { name: 'Ebmaj7/G', beat: 5, dur: 1 }]);
+    expect(s.fifths).toBe(1);
+  });
   it('도돌이표 안내', () => {
     expect(s.warnings.join(' ')).toMatch(/도돌이표/);
   });
