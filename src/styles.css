@@ -206,7 +206,22 @@ h2 { margin: 0; font-size: 20px; }
 .note-card .staff-box { display: flex; justify-content: center; border: none; background: transparent; }
 .note-card svg { width: min(100%, 210px); height: auto; }
 .view-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
-.view-bar .segmented { flex: 0 1 220px; }
+.view-bar .segmented { flex: 0 1 340px; }
+.view-bar .segmented button { white-space: nowrap; }
 .calib .link { color: var(--accent); font-weight: 700; }
 .read-q { align-items: stretch; }
 .levels { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
+
+/* 떨어지는 건반 */
+.roll { position: relative; overflow: hidden; background: linear-gradient(var(--surface-2), var(--surface)); border-radius: 12px 12px 0 0; border: 1px solid var(--line); border-bottom: none; }
+.roll-inner { position: absolute; left: 0; right: 0; will-change: transform; }
+.rn { position: absolute; border-radius: 6px; box-sizing: border-box; display: flex; align-items: flex-end; justify-content: center; font-size: 11px; font-weight: 800; color: #fff; padding-bottom: 2px; }
+.rn.hand-R { background: #3b82f6; border: 1px solid #1d4ed8; }
+.rn.hand-L { background: #10b981; border: 1px solid #047857; }
+.rn.blk.hand-R { background: #1d4ed8; } .rn.blk.hand-L { background: #047857; }
+.roll-hit { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: var(--accent); }
+.kb-scroll .roll + .keyboard { border-top: none; }
+.staff-box.wrapped { overflow-x: hidden; display: flex; flex-direction: column; }
+.bar-no { font-size: 10px; fill: var(--muted); }
+.song-row { display: flex; gap: 6px; align-items: center; } .song-row .ex-item { flex: 1; } .song-tools { gap: 8px; }
+.tie { fill: none; stroke: currentColor; stroke-width: 1.4; }

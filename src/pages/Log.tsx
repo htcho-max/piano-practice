@@ -1,6 +1,14 @@
 import { useRuns, useDays } from '../state/useDB';
 import { findExercise } from '../lessons/lessons';
 import { formatDuration, localDate, addDays } from '../data/dates';
+import { findBuiltin } from '../songs/builtin';
+import { findLevel } from '../practice/reading';
+
+const songName = (id: string): string => {
+  if (id.startsWith('song:')) return `곡 · ${findBuiltin(id.slice(5))?.title ?? '내 곡'}`;
+  if (id.startsWith('read-')) return `음표 읽기 · ${findLevel(id.slice(5))?.title ?? ''}`;
+  return id;
+};
 
 export function Log() {
   const runs = useRuns();
@@ -35,8 +43,8 @@ export function Log() {
             const f = findExercise(r.exId);
             return (
               <li key={r.id} className={r.passed ? 'passed' : ''}>
-                <div className="rl-top"><b>{f ? `${f.lesson.n}과 · ${f.ex.title}` : r.exId}</b><span className="score">{r.score}점</span></div>
-                <div className="muted small">{r.date.slice(5).replace('-', '/')} · {r.mode === 'timed' ? `박자 맞춰 ♩${r.bpm}` : r.mode === 'wait' ? '기다려 주기' : '건반 찾기'}{r.hands !== 'B' ? ` · ${r.hands === 'R' ? '오른손' : '왼손'}만` : ''}{r.passed ? ' · 통과' : ''}</div>
+                <div className="rl-top"><b>{f ? `${f.lesson.n}과 · ${f.ex.title}` : songName(r.exId)}</b><span className="score">{r.score}점</span></div>
+                <div className="muted small">{r.date.slice(5).replace('-', '/')} · {r.mode === 'timed' ? `박자 맞춰 ♩${r.bpm}` : r.mode === 'wait' ? '기다려 주기' : r.mode === 'read' ? '음표 읽기' : '건반 찾기'}{r.section && r.lessonId === 'song' ? ` · ${r.section[0]}~${r.section[1]}마디` : ''}{r.hands !== 'B' ? ` · ${r.hands === 'R' ? '오른손' : '왼손'}만` : ''}{r.passed ? ' · 통과' : ''}</div>
                 {r.detail && <div className="small">{r.detail}</div>}
               </li>
             );

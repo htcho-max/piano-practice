@@ -11,7 +11,8 @@ export type StaffMode = 'grand' | Clef;
 export type Acc = 'sharp' | 'flat' | 'natural';
 export type LNote = { midi: number; y: number; acc?: Acc; step: number; finger?: number; hand: 'R' | 'L' };
 export type LItem =
-  | { kind: 'chord'; staff: Clef; beat: number; dur: number; notes: LNote[]; stemUp: boolean; ledgers: number[] }
+  /** tieTo: 붙임줄로 이어지는 다음 조각의 박, cont: 앞 조각에서 이어진 것 */
+  | { kind: 'chord'; staff: Clef; beat: number; dur: number; notes: LNote[]; stemUp: boolean; ledgers: number[]; tieTo?: number; cont?: boolean }
   | { kind: 'rest'; staff: Clef; beat: number; dur: number };
 export type Layout = { items: LItem[]; staves: Clef[]; beats: number; total: number; bars: number[]; onsets: number[] };
 
@@ -63,6 +64,27 @@ function splitRest(from: number, to: number, beats: number): { beat: number; dur
   return out;
 }
 
+const VALUES = [4, 3, 2, 1.5, 1, 0.75, 0.5, 0.25];
+
+/** 음 길이를 마디 안·표준 길이 조각으로 (붙임줄로 이어 그림) */
+export function splitNote(beat: number, dur: number, beats: number): { beat: number; dur: number }[] {
+  const out: { beat: number; dur: number }[] = [];
+  let t = beat, left = dur, guard = 0;
+  while (left > 1e-3 && guard++ < 50) {
+    const barEnd = (Math.floor(t / beats + 1e-6) + 1) * beats;
+    const room = Math.min(left, barEnd - t);
+    const v = VALUES.find((x) => x <= room + 1e-6 && x <= beats + 1e-6);
+    if (v === undefined || (room - v > 1e-3 && room - v < 0.25 - 1e-6 && room <= beats)) {
+      // 셋잇단처럼 표준 길이로 안 나뉘면 그대로 한 조각
+      out.push({ beat: t, dur: room });
+      t += room; left -= room; continue;
+    }
+    out.push({ beat: t, dur: v });
+    t += v; left -= v;
+  }
+  return out;
+}
+
 export function layoutSteps(steps: Step[], beats = 4, mode: StaffMode = 'grand', totalOverride?: number): Layout {
   const staves: Clef[] = mode === 'grand' ? ['treble', 'bass'] : [mode];
   const staffOf = (n: PNote): Clef => (mode === 'grand' ? (n.hand === 'R' ? 'treble' : 'bass') : mode);
@@ -83,7 +105,11 @@ export function layoutSteps(steps: Step[], beats = 4, mode: StaffMode = 'grand',
     // 마디마다 임시표 기억 (줄·칸 → 올림/내림)
     let barNo = -1;
     let barAcc = new Map<number, number>();
-    for (const c of chords) {
+    for (let ci = 0; ci < chords.length; ci++) {
+      const c = chords[ci];
+      // 같은 오선의 다음 화음까지만 그림 (겹치는 성부는 단순하게)
+      const nextBeat = chords[ci + 1]?.beat;
+      if (nextBeat !== undefined && c.beat + c.dur > nextBeat + 1e-6 && nextBeat > c.beat) c.dur = nextBeat - c.beat;
       if (c.beat > cursor + 1e-6) for (const r of splitRest(cursor, c.beat, beats)) items.push({ kind: 'rest', staff, ...r });
       const bn = Math.floor(c.beat / beats + 1e-6);
       if (bn !== barNo) { barNo = bn; barAcc = new Map(); }
@@ -96,7 +122,12 @@ export function layoutSteps(steps: Step[], beats = 4, mode: StaffMode = 'grand',
       }).sort((a, b) => b.y - a.y);
       const ledgers = [...new Set(c.notes.flatMap(({ n }) => ledgerLines(diatonic(n.midi, n.spell).dia, staff)))].sort((a, b) => a - b);
       const mid = notes.reduce((a, x) => a + x.y, 0) / notes.length;
-      items.push({ kind: 'chord', staff, beat: c.beat, dur: c.dur, notes, stemUp: mid >= 2, ledgers });
+      // 마디를 넘거나 한 음표로 못 쓰는 길이는 붙임줄로 나눔
+      const pieces = splitNote(c.beat, c.dur, beats);
+      pieces.forEach((pc, k) => {
+        const ns = k === 0 ? notes : notes.map((n) => ({ ...n, acc: undefined }));
+        items.push({ kind: 'chord', staff, beat: pc.beat, dur: pc.dur, notes: ns, stemUp: mid >= 2, ledgers, tieTo: pieces[k + 1]?.beat, cont: k > 0 || undefined });
+      });
       cursor = Math.max(cursor, c.beat + c.dur);
     }
     if (cursor < total - 1e-6) for (const r of splitRest(cursor, total, beats)) items.push({ kind: 'rest', staff, ...r });

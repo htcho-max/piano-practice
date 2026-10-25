@@ -63,3 +63,27 @@ export function handsUsed(steps: Step[]): Hand[] {
   const set = new Set(steps.flatMap((s) => s.notes.map((n) => n.hand)));
   return (['R', 'L'] as Hand[]).filter((h) => set.has(h));
 }
+
+export function barCount(steps: Step[], beats: number): number {
+  return Math.max(1, Math.ceil(totalBeats(steps) / beats - 1e-6));
+}
+
+/**
+ * from~to 마디(1부터, 둘 다 포함)만 잘라 0박부터 시작하게.
+ * 앞 마디에서 이어 누르는 음은 빼고, 구간 끝을 넘는 길이는 자름.
+ */
+export function sliceBars(steps: Step[], beats: number, from: number, to: number): Step[] {
+  const s = (from - 1) * beats, e = to * beats;
+  const out: Step[] = [];
+  for (const st of steps) {
+    if (st.beat < s - 1e-6 || st.beat >= e - 1e-6) continue;
+    const beat = st.beat - s;
+    const dur = Math.min(st.dur, e - st.beat);
+    out.push({ beat, dur, notes: st.notes.map((n) => (n.len !== undefined ? { ...n, len: Math.min(n.len, e - st.beat) } : n)) });
+  }
+  if (!out.length || out[0].beat > 1e-6) out.unshift({ beat: 0, dur: out.length ? out[0].beat : e - s, notes: [] });
+  return out;
+}
+
+/** 칸 번호 → 마디 번호(1부터) */
+export function barOf(step: Step, beats: number): number { return Math.floor(step.beat / beats + 1e-6) + 1; }

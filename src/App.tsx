@@ -4,11 +4,12 @@ import { SettingsSheet } from './components/SettingsSheet';
 import { Today } from './pages/Today';
 import { Learn, type LearnTarget } from './pages/Learn';
 import { Play } from './pages/Play';
+import { Songs } from './pages/Songs';
 import { Log } from './pages/Log';
 import { useBackLayer, setExitWarning, restoreGuard } from './state/back';
 import { useMidi } from './state/live';
 
-const TITLES: Record<TabId, string> = { today: '오늘의 연습', learn: '배우기', play: '건반', log: '연습 기록' };
+const TITLES: Record<TabId, string> = { today: '오늘의 연습', learn: '배우기', songs: '곡 연습', play: '건반', log: '연습 기록' };
 
 export function App({ updatedFrom = null }: { updatedFrom?: string | null }) {
   const [toast, setToast] = useState<string | null>(updatedFrom ? `새 버전으로 업데이트됐어요 · ${__APP_VERSION__}` : null);
@@ -45,6 +46,7 @@ export function App({ updatedFrom = null }: { updatedFrom?: string | null }) {
       <main>
         {tab === 'today' && <Today openEx={openEx} />}
         {tab === 'learn' && <Learn target={target} />}
+        {tab === 'songs' && <Songs />}
         {tab === 'play' && <Play />}
         {tab === 'log' && <Log />}
       </main>

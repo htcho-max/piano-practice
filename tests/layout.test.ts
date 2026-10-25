@@ -65,3 +65,42 @@ describe('음표 읽기', () => {
     expect(readScore(0, 0, 0)).toBe(0);
   });
 });
+
+import { sliceBars, barCount } from '../src/music/steps';
+import { weakBars } from '../src/components/PlayRunner';
+describe('구간·약한 마디', () => {
+  it('마디 자르기', () => {
+    const st = parseSteps('L5:C3=w+R1:C4/q R2:D4/q R3:E4/h | R1:C4/w | R2:D4/h R3:E4/h');
+    expect(barCount(st, 4)).toBe(3);
+    const s2 = sliceBars(st, 4, 2, 3);
+    expect(s2.map((x) => x.beat)).toEqual([0, 4, 6]);
+    expect(s2[0].notes[0].midi).toBe(60);
+    const s1 = sliceBars(parseSteps('L5:C3=w+R1:C4/q R2:D4/h. | R1:C4/w'), 4, 1, 1);
+    expect(s1[0].notes.find((n) => n.hand === 'L')?.len).toBe(4);
+  });
+  it('약한 마디는 연습한 판 수로 나눔', () => {
+    const w = weakBars([
+      { barErrors: { 2: 2, 5: 1 }, section: [1, 8] },
+      { barErrors: { 2: 1 }, section: [1, 8] },
+      { barErrors: { 5: 2 }, section: [5, 6] },
+    ], 8);
+    expect(w.map((x) => x.bar)).toEqual([2, 5]);
+    expect(w[0].rate).toBe(1.5);
+  });
+});
+
+import { splitNote } from '../src/music/layout';
+describe('붙임줄로 나누기', () => {
+  it('마디를 넘는 음, 이상한 길이', () => {
+    expect(splitNote(2, 2, 3)).toEqual([{ beat: 2, dur: 1 }, { beat: 3, dur: 1 }]);
+    expect(splitNote(0, 2.5, 4)).toEqual([{ beat: 0, dur: 2 }, { beat: 2, dur: 0.5 }]);
+    expect(splitNote(0, 4, 4)).toEqual([{ beat: 0, dur: 4 }]);
+    expect(splitNote(1, 3, 4)).toEqual([{ beat: 1, dur: 3 }]);
+  });
+  it('layout 에 tieTo·cont', () => {
+    const lay = layoutSteps(parseSteps('R:C4/h R:E4=h/h | R:G4/w'), 3, 'treble'); // 3/4 에서 E4 2박이 마디를 넘음 ... 
+    const ch = lay.items.filter((i) => i.kind === 'chord');
+    expect(ch.some((c) => c.kind === 'chord' && c.tieTo !== undefined)).toBe(true);
+    expect(ch.some((c) => c.kind === 'chord' && c.cont)).toBe(true);
+  });
+});

@@ -51,7 +51,7 @@ export function Learn({ target }: { target: LearnTarget }) {
         <div className="page">
           <div className="crumbs"><button className="link" onClick={() => setExId(null)}>‹ {lesson.n}과 {lesson.title}</button></div>
           <div className="ex-head"><h2 data-testid="ex-title">{ex.title}</h2><p className="hint">{ex.text}</p></div>
-          {ex.kind === 'find' ? <FindRunner key={ex.id} ex={ex} lesson={lesson} onDone={onDone} /> : ex.kind === 'read' ? <ReadRunner key={ex.id} levelId={ex.level} count={ex.count} exId={ex.id} lesson={lesson} onDone={onDone} /> : <PlayRunner key={ex.id} ex={ex} lesson={lesson} onDone={onDone} />}
+          {ex.kind === 'find' ? <FindRunner key={ex.id} ex={ex} lesson={lesson} onDone={onDone} /> : ex.kind === 'read' ? <ReadRunner key={ex.id} levelId={ex.level} count={ex.count} exId={ex.id} lesson={lesson} onDone={onDone} /> : <PlayRunner key={ex.id} ex={ex} lessonId={lesson.id} onDone={onDone} />}
         </div>
       );
     }
@@ -92,7 +92,7 @@ export function Learn({ target }: { target: LearnTarget }) {
           );
         })}
       </ul>
-      <p className="hint">다음 단계(코드와 찬양 반주, 곡 연습, 좋아하는 곡)는 차례로 추가돼요.</p>
+      <p className="hint">다음 단계(코드와 찬양 반주, 음계)는 차례로 추가돼요. 곡은 아래 ♫ 곡 탭에서 연습해요.</p>
     </div>
   );
 }

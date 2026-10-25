@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { GLYPHS } from '../music/glyphs';
 import { layoutSteps, type Clef, type StaffMode, type LItem } from '../music/layout';
 import type { Step } from '../music/steps';
@@ -18,89 +18,146 @@ function G({ name, x, y, fill }: { name: string; x: number; y: number; fill?: st
   return <path d={g.d} transform={`translate(${x.toFixed(1)} ${y.toFixed(1)}) scale(${K})`} fill={fill ?? 'currentColor'} />;
 }
 
+type Sys = { from: number; to: number; x0: number; first: boolean };
+
 /**
  * 큰보표(또는 한 오선) 악보. 지금 칸은 주황, 채점한 칸은 결과 색.
- * 넓으면 가로로 스크롤하고, 지금 칸을 따라감.
+ * wrap 이면 화면 폭에 맞춰 여러 줄(태블릿에서 곡 전체가 한눈에), 아니면 한 줄로 가로 스크롤.
  */
-export function Staff({ steps, beats = 4, mode = 'grand', cur = -1, states = [], fingers = false, total, highlight, testid = 'staff', bare = false }: {
-  steps: Step[]; beats?: number; mode?: StaffMode; cur?: number; states?: StepState[]; fingers?: boolean; total?: number;
+export function Staff({ steps, beats = 4, timeNum, timeDen = 4, mode = 'grand', cur = -1, states = [], fingers = false, total, highlight, testid = 'staff', bare = false, wrap = false, barOffset = 0 }: {
+  steps: Step[]; beats?: number; timeNum?: number; timeDen?: number; mode?: StaffMode; cur?: number; states?: StepState[]; fingers?: boolean; total?: number;
   highlight?: (step: number) => string | undefined; testid?: string;
   /** 음표 읽기용: 박자표·쉼표 없이 음만 */
   bare?: boolean;
+  /** 화면 폭에 맞춰 줄 바꿈 */
+  wrap?: boolean;
+  /** 마디 번호 더하기 (구간 연습일 때 원래 번호) */
+  barOffset?: number;
 }) {
   const lay = useMemo(() => layoutSteps(steps, beats, mode, total), [steps, beats, mode, total]);
   const box = useRef<HTMLDivElement>(null);
+  const [boxW, setBoxW] = useState(0);
+  useEffect(() => {
+    const b = box.current;
+    if (!b || !wrap || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => setBoxW(b.clientWidth));
+    ro.observe(b);
+    setBoxW(b.clientWidth);
+    return () => ro.disconnect();
+  }, [wrap]);
   const top = (c: Clef) => (lay.staves.length === 2 && c === 'bass' ? TOP + 4 * SP + GAP : TOP);
   const height = top(lay.staves[lay.staves.length - 1]) + 4 * SP + 40;
+  const num = timeNum ?? beats;
+  const HEAD_X = bare ? 84 : 92; // 첫 줄 머리(자리표+박자표) 너비
+  const HEAD_X2 = 56; // 다음 줄 머리(자리표만)
 
-  // 박 → x
-  const { xOf, width, barX } = useMemo(() => {
+  // 박 → x (한 줄로 늘어놓았을 때)
+  const { xs, width, barList } = useMemo(() => {
     const xs = new Map<number, number>();
     const barSet = new Set(lay.bars);
-    let x = bare ? 84 : 84;
-    const barX: number[] = [];
+    let x = HEAD_X;
+    const barList: { beat: number; x: number }[] = [];
     const onsets = lay.onsets;
     onsets.forEach((b, i) => {
-      if (barSet.has(b)) { barX.push(x - 6); x += 12; }
+      if (barSet.has(b)) { barList.push({ beat: b, x: x - 6 }); x += 12; }
       const hasAcc = lay.items.some((it) => it.beat === b && it.kind === 'chord' && it.notes.some((n) => n.acc));
       if (hasAcc) x += 10;
       xs.set(b, x);
       const next = onsets[i + 1] ?? lay.total;
       x += bare ? 44 : 16 + 26 * Math.pow(Math.max(0.25, next - b), 0.62);
     });
-    return { xOf: (b: number) => xs.get(b) ?? 0, width: x + (bare ? 0 : 14), barX };
-  }, [lay, bare]);
+    return { xs, width: x + (bare ? 0 : 14), barList };
+  }, [lay, bare, HEAD_X]);
 
-  const stepX = useMemo(() => {
+  // 줄 나누기: 마디 경계에서, 폭을 넘으면 다음 줄
+  const systems: Sys[] = useMemo(() => {
+    // 휴대폰처럼 좁으면(600px 미만) 한 줄로 가로 스크롤
+    if (!wrap || boxW < 600 || width <= boxW) return [{ from: 0, to: lay.total, x0: 0, first: true }];
+    const out: Sys[] = [];
+    let from = 0, startX = 0, first = true;
+    const ends = [...barList, { beat: lay.total, x: width - 14 }];
+    let lastFit: { beat: number; x: number } | null = null;
+    for (const b of ends) {
+      const head = first ? 0 : HEAD_X2 - 12;
+      if (b.x - startX + head + 14 > boxW && lastFit) {
+        out.push({ from, to: lastFit.beat, x0: startX, first });
+        from = lastFit.beat; startX = lastFit.x; first = false; lastFit = null;
+      }
+      lastFit = b;
+    }
+    out.push({ from, to: lay.total, x0: startX, first });
+    return out;
+  }, [wrap, boxW, width, barList, lay.total, HEAD_X2]);
+
+  const stepBeat = useMemo(() => {
     const m = new Map<number, number>();
-    lay.items.forEach((it) => { if (it.kind === 'chord') it.notes.forEach((n) => { if (!m.has(n.step)) m.set(n.step, xOf(it.beat)); }); });
+    lay.items.forEach((it) => { if (it.kind === 'chord') it.notes.forEach((n) => { if (!m.has(n.step)) m.set(n.step, it.beat); }); });
     return m;
-  }, [lay, xOf]);
+  }, [lay]);
 
   useEffect(() => {
     const b = box.current;
     if (!b || cur < 0) return;
-    const x = stepX.get(cur);
-    if (x === undefined) return;
+    const beat = stepBeat.get(cur);
+    if (beat === undefined) return;
+    if (systems.length > 1) {
+      const k = systems.findIndex((sy) => beat >= sy.from - 1e-6 && beat < sy.to - 1e-6);
+      const el = b.querySelectorAll<SVGElement>('svg')[k];
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      if (r.top < 0 || r.bottom > window.innerHeight) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      return;
+    }
+    const x = xs.get(beat) ?? 0;
     const left = x - b.clientWidth * 0.3;
     if (Math.abs(b.scrollLeft - left) > b.clientWidth * 0.25 || x < b.scrollLeft || x > b.scrollLeft + b.clientWidth - 30) b.scrollTo({ left: Math.max(0, left), behavior: 'smooth' });
-  }, [cur, stepX]);
+  }, [cur, stepBeat, xs, systems]);
 
   const colorOf = (step: number): string | undefined => highlight?.(step) ?? (step === cur ? 'var(--accent)' : COLOR[states[step] ?? 'todo']);
-
-  const lines = lay.staves.flatMap((c) => [0, 1, 2, 3, 4].map((k) => <line key={`${c}${k}`} x1={12} x2={width - 4} y1={top(c) + k * SP} y2={top(c) + k * SP} className="staff-line" />));
   const yTop = top(lay.staves[0]);
   const yBot = top(lay.staves[lay.staves.length - 1]) + 4 * SP;
 
   return (
-    <div className="staff-box" ref={box} data-testid={testid}>
-      <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="staff-svg" role="img" aria-label="악보">
-        {lines}
-        <line x1={12} x2={12} y1={yTop} y2={yBot} className="bar-line" />
-        {lay.staves.length === 2 && <path d={`M9 ${yTop} Q1 ${(yTop + yBot) / 2} 9 ${yBot}`} className="brace" />}
-        {lay.staves.map((c) => (
-          <g key={c}>
-            <G name={c === 'treble' ? 'gClef' : 'fClef'} x={18} y={top(c) + (c === 'treble' ? 3 : 1) * SP} />
-            {!bare && <G name={`timeSig${beats}`} x={54} y={top(c) + SP} />}
-            {!bare && <G name="timeSig4" x={54} y={top(c) + 3 * SP} />}
-          </g>
-        ))}
-        {barX.map((x) => <line key={x} x1={x} x2={x} y1={yTop} y2={yBot} className="bar-line" />)}
-        {!bare && <line x1={width - 8} x2={width - 8} y1={yTop} y2={yBot} className="bar-line" />}
-        {!bare && <line x1={width - 4} x2={width - 4} y1={yTop} y2={yBot} className="bar-line end" />}
-        {lay.items.filter((it) => !bare || it.kind === 'chord').map((it, i) => <Item key={i} it={it} x={xOf(it.beat)} top={top(it.staff)} colorOf={colorOf} fingers={fingers} />)}
-      </svg>
+    <div className={`staff-box${systems.length > 1 ? ' wrapped' : ''}`} ref={box} data-testid={testid}>
+      {systems.map((sy, k) => {
+        const shift = sy.first ? 0 : HEAD_X2 - sy.x0;
+        const last = k === systems.length - 1;
+        const w = sy.first && systems.length === 1 ? width : (last ? width - 14 : (barList.find((b) => b.beat === sy.to)?.x ?? width)) + shift + (last ? 14 : 2);
+        const inRange = (b: number) => b >= sy.from - 1e-6 && b < sy.to - 1e-6;
+        const barNo = Math.round(sy.from / beats) + 1 + barOffset;
+        return (
+          <svg key={k} width={w} height={height} viewBox={`0 0 ${w} ${height}`} className="staff-svg" role="img" aria-label={`악보 ${barNo}마디부터`}>
+            {lay.staves.flatMap((c) => [0, 1, 2, 3, 4].map((q) => <line key={`${c}${q}`} x1={12} x2={w - (last && !bare ? 4 : 1)} y1={top(c) + q * SP} y2={top(c) + q * SP} className="staff-line" />))}
+            <line x1={12} x2={12} y1={yTop} y2={yBot} className="bar-line" />
+            {lay.staves.length === 2 && <path d={`M9 ${yTop} Q1 ${(yTop + yBot) / 2} 9 ${yBot}`} className="brace" />}
+            {!bare && (k > 0 || barOffset > 0) && <text x={14} y={yTop - 14} className="bar-no">{barNo}</text>}
+            {lay.staves.map((c) => (
+              <g key={c}>
+                <G name={c === 'treble' ? 'gClef' : 'fClef'} x={18} y={top(c) + (c === 'treble' ? 3 : 1) * SP} />
+                {!bare && sy.first && <G name={`timeSig${num}`} x={56} y={top(c) + SP} />}
+                {!bare && sy.first && <G name={`timeSig${timeDen}`} x={56} y={top(c) + 3 * SP} />}
+              </g>
+            ))}
+            {barList.filter((b) => b.beat > sy.from + 1e-6 && b.beat < sy.to - 1e-6).map((b) => <line key={b.beat} x1={b.x + shift} x2={b.x + shift} y1={yTop} y2={yBot} className="bar-line" />)}
+            {!last && <line x1={w - 1} x2={w - 1} y1={yTop} y2={yBot} className="bar-line" />}
+            {last && !bare && <line x1={w - 8} x2={w - 8} y1={yTop} y2={yBot} className="bar-line" />}
+            {last && !bare && <line x1={w - 4} x2={w - 4} y1={yTop} y2={yBot} className="bar-line end" />}
+            {lay.items.filter((it) => (!bare || it.kind === 'chord') && inRange(it.beat)).map((it, i) => <Item key={i} it={it} x={(xs.get(it.beat) ?? 0) + shift} tieX={it.kind === 'chord' && it.tieTo !== undefined ? (inRange(it.tieTo) ? (xs.get(it.tieTo) ?? 0) + shift : w - 2) : undefined} top={top(it.staff)} colorOf={colorOf} fingers={fingers} />)}
+          </svg>
+        );
+      })}
     </div>
   );
 }
 
-function Item({ it, x, top, colorOf, fingers }: { it: LItem; x: number; top: number; colorOf: (s: number) => string | undefined; fingers: boolean }) {
+function Item({ it, x, top, colorOf, fingers, tieX }: { it: LItem; x: number; top: number; colorOf: (s: number) => string | undefined; fingers: boolean; tieX?: number }) {
   if (it.kind === 'rest') {
     const d = it.dur;
     if (d >= 4 || d === 3) return <G name="restWhole" x={x} y={top + SP} />;
     if (d >= 2) return <G name="restHalf" x={x} y={top + 2 * SP} />;
     if (d >= 1) return <G name="restQuarter" x={x} y={top + 2 * SP} />;
-    return <G name="rest8th" x={x} y={top + 2 * SP} />;
+    if (d >= 0.5) return <G name="rest8th" x={x} y={top + 2 * SP} />;
+    return <G name="rest16th" x={x} y={top + 2 * SP} />;
   }
   const d = it.dur;
   const head = d >= 4 ? 'noteheadWhole' : d >= 2 ? 'noteheadHalf' : 'noteheadBlack';
@@ -122,8 +179,13 @@ function Item({ it, x, top, colorOf, fingers }: { it: LItem; x: number; top: num
         </g>
       ))}
       {d < 4 && <line x1={sx} x2={sx} y1={it.stemUp ? yLo : yHi} y2={it.stemUp ? yHi - 3.4 * SP : yLo + 3.4 * SP} className="stem" />}
-      {d < 1 && <G name={it.stemUp ? 'flag8thUp' : 'flag8thDown'} x={sx - 0.6} y={it.stemUp ? yHi - 3.4 * SP : yLo + 3.4 * SP} />}
-      {fingers && it.notes.some((n) => n.finger) && (
+      {d < 1 && <G name={d < 0.4 ? (it.stemUp ? 'flag16thUp' : 'flag16thDown') : it.stemUp ? 'flag8thUp' : 'flag8thDown'} x={sx - 0.6} y={it.stemUp ? yHi - 3.4 * SP : yLo + 3.4 * SP} />}
+      {tieX !== undefined && it.notes.map((n, i) => {
+        const y = top + n.y * SP + (it.stemUp ? 7 : -7);
+        const x1 = x + HEAD + 1, x2 = tieX - 1, bend = it.stemUp ? 6 : -6;
+        return <path key={`t${i}`} d={`M${x1} ${y} Q${(x1 + x2) / 2} ${y + bend} ${x2} ${y}`} className="tie" />;
+      })}
+      {fingers && !it.cont && it.notes.some((n) => n.finger) && (
         <text x={x + HEAD / 2} y={it.staff === 'treble' ? Math.min(top - 8, yHi - (it.stemUp ? 3.4 * SP + 6 : 8)) : Math.max(top + 4 * SP + 16, yLo + (it.stemUp ? 16 : 3.4 * SP + 14))} className="fingering" textAnchor="middle">
           {it.notes.filter((n) => n.finger).map((n) => n.finger).join(' ')}
         </text>

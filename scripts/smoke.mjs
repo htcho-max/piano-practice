@@ -217,6 +217,52 @@ try {
     ok((await text(page.getByTestId('score'))) === '100점', `보정 뒤 ${await text(page.getByTestId('score'))}`);
     await page.evaluate(() => { const s = JSON.parse(localStorage.getItem('piano-settings')); s.latencyMs = 0; localStorage.setItem('piano-settings', JSON.stringify(s)); });
 
+
+    // 12. v0.3 — 곡 연습: 구간, 약한 마디, 템포 사다리, 반복, 떨어지는 건반, MusicXML
+    await tab(page, '곡');
+    ok(await page.locator('button[data-testid^="song-"]').count() === 6, '기본 곡 6개');
+    await page.getByTestId('song-bihaenggi').click();
+    ok(await page.getByTestId('staff').isVisible(), '곡은 악보로 시작');
+    await page.getByTestId('sec-from').selectOption('3');
+    await page.getByTestId('sec-to').selectOption('4');
+    await page.getByTestId('wait-hint').waitFor(); await wait(page, 200);
+    ok(await page.locator('[data-testid="staff"] .note').count() === 8, `구간 3~4마디 음표 ${await page.locator('[data-testid="staff"] .note').count()}개`);
+    ok((await text(page.locator('.bar-no').first())) === '3', '구간 마디 번호 3부터');
+    const chord = async (a, b) => { await page.evaluate(([a, b]) => { window.__on(a); window.__on(b); }, [a, b]); await wait(page, 80); await page.evaluate(([a, b]) => { window.__off(a); window.__off(b); }, [a, b]); await wait(page, 80); };
+    await chord(55, 62); await tap(page, 62); await wait(page, 90); await tap(page, 62); await wait(page, 90);
+    await chord(48, 64); await tap(page, 65); await wait(page, 90); /* 틀림 (4마디) */ await tap(page, 67); await wait(page, 90); await tap(page, 67); await wait(page, 300);
+    ok(await page.getByTestId('result').isVisible(), '구간 기다려 주기 끝');
+    ok(await page.getByTestId('weak-4').isVisible(), '자주 틀리는 마디: 4마디');
+    await page.getByTestId('view-roll').click();
+    ok(await page.getByTestId('roll').isVisible() && await page.locator('[data-testid="roll"] .rn').count() === 8, '떨어지는 건반 보기');
+    await page.getByTestId('view-staff').click();
+    // 템포 사다리 + 반복: 3~4마디, ♩80 목표 → ♩48 부터
+    await page.getByTestId('mode-timed').click();
+    await page.getByTestId('ladder').click();
+    ok((await text(page.getByTestId('bpm'))) === '♩48', `사다리 시작 템포 ${await text(page.getByTestId('bpm'))}`);
+    await page.getByTestId('loop').click();
+    await page.evaluate(() => { window.__pianoT0 = undefined; });
+    await page.getByTestId('timed-start').click();
+    const SEC = [[55, 0], [62, 0], [62, 1], [62, 2], [48, 4], [64, 4], [67, 5], [67, 6]];
+    await playTimed(page, 48, SEC.map(([m, b]) => [m, b, 0]));
+    await page.getByTestId('result').waitFor({ timeout: 25000 });
+    ok((await text(page.getByTestId('score'))) === '100점', `사다리 1판 ${await text(page.getByTestId('score'))}`);
+    ok((await text(page.getByTestId('ladder-msg'))).includes('♩52'), `사다리 한 칸 올림: ${await text(page.getByTestId('ladder-msg'))}`);
+    ok((await text(page.getByTestId('bpm'))) === '♩52', '템포 52');
+    await page.getByTestId('countin').waitFor({ timeout: 5000 }).then(() => ok(true, '끝나면 바로 다시 (반복)'), () => ok(false, '반복 안 됨'));
+    await page.getByTestId('timed-stop').click();
+    await page.getByRole('button', { name: /^‹ 곡 목록/ }).click();
+    // MusicXML 불러오기
+    await page.getByTestId('song-file').setInputFiles('tests/fixtures/piano-test.musicxml');
+    await page.getByTestId('import-msg').waitFor();
+    ok((await text(page.getByTestId('import-msg'))).includes('시험 곡'), `불러오기: ${await text(page.getByTestId('import-msg'))}`);
+    await page.locator('[data-testid^="mysong-"]').first().click();
+    ok((await text(page.getByTestId('song-title'))) === '시험 곡', '불러온 곡 열기');
+    ok((await text(page.getByTestId('bpm'))) === '♩96', '악보 템포 96');
+    ok(await page.locator('[data-testid="staff"] .note').count() >= 6, '불러온 곡 악보');
+    ok((await text(page.locator('.ex-head'))).includes('도돌이표'), '도돌이표 안내');
+    await page.screenshot({ path: 'scripts/shot-import.png', fullPage: true });
+
     // 8. 오늘·기록
     await tab(page, '오늘');
     await wait(page, 300);
