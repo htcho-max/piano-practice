@@ -239,3 +239,9 @@ h2 { margin: 0; font-size: 20px; }
 .segmented[role=tablist] { position: sticky; top: 0; z-index: 5; }
 .chord-text { width: 100%; font: 16px/1.5 ui-monospace, monospace; padding: 8px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); }
 .segmented button { white-space: nowrap; }
+.scale-grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 4px; }
+.scale-grid .chip { padding: 4px 2px; font-size: 13px; min-width: 0; }
+.chip.done { border-color: var(--good); color: var(--good); }
+.chip.on.done { color: var(--accent-ink); }
+@media (max-width: 600px) { .scale-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
+.beam { stroke: currentColor; stroke-width: 4.5; }

@@ -24,7 +24,9 @@ type Sys = { from: number; to: number; x0: number; first: boolean };
  * 큰보표(또는 한 오선) 악보. 지금 칸은 주황, 채점한 칸은 결과 색.
  * wrap 이면 화면 폭에 맞춰 여러 줄(태블릿에서 곡 전체가 한눈에), 아니면 한 줄로 가로 스크롤.
  */
-export function Staff({ steps, beats = 4, timeNum, timeDen = 4, mode = 'grand', cur = -1, states = [], fingers = false, total, highlight, testid = 'staff', bare = false, wrap = false, barOffset = 0, chords }: {
+export function Staff({ steps, beats = 4, timeNum, timeDen = 4, mode = 'grand', cur = -1, states = [], fingers = false, total, highlight, testid = 'staff', bare = false, wrap = false, barOffset = 0, chords, fifths = 0 }: {
+  /** 조표 (#=+, b=−) */
+  fifths?: number;
   /** 악보 위 코드 이름 */
   chords?: { beat: number; name: string }[];
   steps: Step[]; beats?: number; timeNum?: number; timeDen?: number; mode?: StaffMode; cur?: number; states?: StepState[]; fingers?: boolean; total?: number;
@@ -36,7 +38,9 @@ export function Staff({ steps, beats = 4, timeNum, timeDen = 4, mode = 'grand', 
   /** 마디 번호 더하기 (구간 연습일 때 원래 번호) */
   barOffset?: number;
 }) {
-  const lay = useMemo(() => layoutSteps(steps, beats, mode, total), [steps, beats, mode, total]);
+  const lay = useMemo(() => layoutSteps(steps, beats, mode, total, fifths), [steps, beats, mode, total, fifths]);
+  const nAcc = Math.min(7, Math.abs(fifths));
+  const KS = nAcc * 9; // 조표 너비
   const box = useRef<HTMLDivElement>(null);
   const [boxW, setBoxW] = useState(0);
   useEffect(() => {
@@ -51,8 +55,8 @@ export function Staff({ steps, beats = 4, timeNum, timeDen = 4, mode = 'grand', 
   const top = (c: Clef) => (lay.staves.length === 2 && c === 'bass' ? T0 + 4 * SP + GAP : T0);
   const height = top(lay.staves[lay.staves.length - 1]) + 4 * SP + 40;
   const num = timeNum ?? beats;
-  const HEAD_X = bare ? 84 : 92; // 첫 줄 머리(자리표+박자표) 너비
-  const HEAD_X2 = 56; // 다음 줄 머리(자리표만)
+  const HEAD_X = (bare ? 84 : 92) + KS; // 첫 줄 머리(자리표+박자표) 너비
+  const HEAD_X2 = 56 + KS; // 다음 줄 머리(자리표 + 조표)
 
   // 박 → x (한 줄로 늘어놓았을 때)
   const { xs, width, barList } = useMemo(() => {
@@ -127,6 +131,18 @@ export function Staff({ steps, beats = 4, timeNum, timeDen = 4, mode = 'grand', 
         const last = k === systems.length - 1;
         const w = sy.first && systems.length === 1 ? width : (last ? width - 14 : (barList.find((b) => b.beat === sy.to)?.x ?? width)) + shift + (last ? 14 : 2);
         const inRange = (b: number) => b >= sy.from - 1e-6 && b < sy.to - 1e-6;
+        // 빔: 짝 음표와 기둥 끝을 같은 높이로
+        const beamOf = (it: LItem): { x: number; tip: number } | undefined => {
+          if (it.kind !== 'chord' || !it.beam) return undefined;
+          const mate = lay.items.find((o) => o.kind === 'chord' && o.staff === it.staff && o.beam === (it.beam === 'start' ? 'end' : 'start') && Math.abs(o.beat - (it.beam === 'start' ? it.beat + 0.5 : it.beat - 0.5)) < 1e-6);
+          if (!mate || mate.kind !== 'chord') return undefined;
+          const t = top(it.staff);
+          const ys = [...it.notes, ...mate.notes].map((n) => t + n.y * SP);
+          const tip = it.stemUp ? Math.min(...ys) - 3.2 * SP : Math.max(...ys) + 3.2 * SP;
+          const first = it.beam === 'start' ? it : mate, second = it.beam === 'start' ? mate : it;
+          const xs2 = (b: number) => (xs.get(b) ?? 0) + shift + (it.stemUp ? HEAD - 0.6 : 0.6);
+          return { x: it.beam === 'start' ? xs2(second.beat) : xs2(first.beat), tip };
+        };
         const barNo = Math.round(sy.from / beats) + 1 + barOffset;
         return (
           <svg key={k} width={w} height={height} viewBox={`0 0 ${w} ${height}`} className="staff-svg" role="img" aria-label={`악보 ${barNo}마디부터`}>
@@ -137,8 +153,9 @@ export function Staff({ steps, beats = 4, timeNum, timeDen = 4, mode = 'grand', 
             {lay.staves.map((c) => (
               <g key={c}>
                 <G name={c === 'treble' ? 'gClef' : 'fClef'} x={18} y={top(c) + (c === 'treble' ? 3 : 1) * SP} />
-                {!bare && sy.first && <G name={`timeSig${num}`} x={56} y={top(c) + SP} />}
-                {!bare && sy.first && <G name={`timeSig${timeDen}`} x={56} y={top(c) + 3 * SP} />}
+                {keySig(c, fifths).map((y, i) => <G key={`k${i}`} name={fifths > 0 ? 'accidentalSharp' : 'accidentalFlat'} x={50 + i * 9} y={top(c) + y * SP} />)}
+                {!bare && sy.first && <G name={`timeSig${num}`} x={56 + KS} y={top(c) + SP} />}
+                {!bare && sy.first && <G name={`timeSig${timeDen}`} x={56 + KS} y={top(c) + 3 * SP} />}
               </g>
             ))}
             {barList.filter((b) => b.beat > sy.from + 1e-6 && b.beat < sy.to - 1e-6).map((b) => <line key={b.beat} x1={b.x + shift} x2={b.x + shift} y1={yTop} y2={yBot} className="bar-line" />)}
@@ -149,7 +166,7 @@ export function Staff({ steps, beats = 4, timeNum, timeDen = 4, mode = 'grand', 
             {!last && <line x1={w - 1} x2={w - 1} y1={yTop} y2={yBot} className="bar-line" />}
             {last && !bare && <line x1={w - 8} x2={w - 8} y1={yTop} y2={yBot} className="bar-line" />}
             {last && !bare && <line x1={w - 4} x2={w - 4} y1={yTop} y2={yBot} className="bar-line end" />}
-            {lay.items.filter((it) => (!bare || it.kind === 'chord') && inRange(it.beat)).map((it, i) => <Item key={i} it={it} x={(xs.get(it.beat) ?? 0) + shift} tieX={it.kind === 'chord' && it.tieTo !== undefined ? (inRange(it.tieTo) ? (xs.get(it.tieTo) ?? 0) + shift : w - 2) : undefined} top={top(it.staff)} colorOf={colorOf} fingers={fingers} />)}
+            {lay.items.filter((it) => (!bare || it.kind === 'chord') && inRange(it.beat)).map((it, i) => <Item key={i} it={it} x={(xs.get(it.beat) ?? 0) + shift} tieX={it.kind === 'chord' && it.tieTo !== undefined ? (inRange(it.tieTo) ? (xs.get(it.tieTo) ?? 0) + shift : w - 2) : undefined} beamTo={beamOf(it)} top={top(it.staff)} colorOf={colorOf} fingers={fingers} />)}
           </svg>
         );
       })}
@@ -157,7 +174,16 @@ export function Staff({ steps, beats = 4, timeNum, timeDen = 4, mode = 'grand', 
   );
 }
 
-function Item({ it, x, top, colorOf, fingers, tieX }: { it: LItem; x: number; top: number; colorOf: (s: number) => string | undefined; fingers: boolean; tieX?: number }) {
+/** 조표 자리 (오선 맨 윗줄 0, 칸 단위) */
+function keySig(c: Clef, fifths: number): number[] {
+  const n = Math.min(7, Math.abs(fifths));
+  // 높은음자리표 F5 C5 G5 D5 A4 E5 B4 / B4 E5 A4 D5 G4 C5 F4 (낮은음자리표는 같은 모양으로 한 칸 아래)
+  const sharpT = [0, 1.5, -0.5, 1, 2.5, 0.5, 2], flatT = [2, 0.5, 2.5, 1, 3, 1.5, 3.5];
+  const base = fifths > 0 ? sharpT : flatT;
+  return base.slice(0, n).map((y) => y + (c === 'bass' ? 1 : 0));
+}
+
+function Item({ it, x, top, colorOf, fingers, tieX, beamTo }: { it: LItem; x: number; top: number; colorOf: (s: number) => string | undefined; fingers: boolean; tieX?: number; beamTo?: { x: number; tip: number } }) {
   if (it.kind === 'rest') {
     const d = it.dur;
     if (d >= 4 || d === 3) return <G name="restWhole" x={x} y={top + SP} />;
@@ -185,8 +211,9 @@ function Item({ it, x, top, colorOf, fingers, tieX }: { it: LItem; x: number; to
           {dotted && <G name="augmentationDot" x={x + (d >= 4 ? 422 * K : HEAD) + 3} y={top + (Number.isInteger(n.y) ? n.y - 0.5 : n.y) * SP} />}
         </g>
       ))}
-      {d < 4 && <line x1={sx} x2={sx} y1={it.stemUp ? yLo : yHi} y2={it.stemUp ? yHi - 3.4 * SP : yLo + 3.4 * SP} className="stem" />}
-      {d < 1 && <G name={d < 0.4 ? (it.stemUp ? 'flag16thUp' : 'flag16thDown') : it.stemUp ? 'flag8thUp' : 'flag8thDown'} x={sx - 0.6} y={it.stemUp ? yHi - 3.4 * SP : yLo + 3.4 * SP} />}
+      {d < 4 && <line x1={sx} x2={sx} y1={it.stemUp ? yLo : yHi} y2={beamTo ? beamTo.tip : it.stemUp ? yHi - 3.4 * SP : yLo + 3.4 * SP} className="stem" />}
+      {beamTo && it.beam === 'start' && <line x1={sx} x2={beamTo.x} y1={beamTo.tip} y2={beamTo.tip} className="beam" />}
+      {d < 1 && !beamTo && <G name={d < 0.4 ? (it.stemUp ? 'flag16thUp' : 'flag16thDown') : it.stemUp ? 'flag8thUp' : 'flag8thDown'} x={sx - 0.6} y={it.stemUp ? yHi - 3.4 * SP : yLo + 3.4 * SP} />}
       {tieX !== undefined && it.notes.map((n, i) => {
         const y = top + n.y * SP + (it.stemUp ? 7 : -7);
         const x1 = x + HEAD + 1, x2 = tieX - 1, bend = it.stemUp ? 6 : -6;

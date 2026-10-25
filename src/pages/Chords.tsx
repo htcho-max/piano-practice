@@ -5,12 +5,14 @@ import { PlayRunner, type Piece } from '../components/PlayRunner';
 import { Play } from './Play';
 import { QUALITIES, KEYS, PROGRESSIONS, PATTERNS, parseChord, matchChord, rhFingers, bassNote, rootName, progressionChords, accompany, FLAT_KEYS, type PatternId } from '../music/chordbook';
 import { useHeld } from '../state/live';
+import { useRuns } from '../state/useDB';
+import { SCALES, findScale, scaleId, scaleSteps, arpeggioSteps, hanon1, ARPEGGIOS } from '../music/scales';
 import { piano } from '../audio/piano';
 import { resumeAudio } from '../audio/context';
 import { perfToAudio } from '../audio/metronome';
 
-type Sub = 'dict' | 'drill' | 'acc' | 'free';
-const SUBS: { id: Sub; label: string }[] = [{ id: 'dict', label: '코드 사전' }, { id: 'drill', label: '코드 바꾸기' }, { id: 'acc', label: '반주 패턴' }, { id: 'free', label: '자유 연주' }];
+type Sub = 'dict' | 'drill' | 'acc' | 'scales' | 'free';
+const SUBS: { id: Sub; label: string }[] = [{ id: 'dict', label: '코드 사전' }, { id: 'drill', label: '코드 바꾸기' }, { id: 'acc', label: '반주 패턴' }, { id: 'scales', label: '음계' }, { id: 'free', label: '자유 연주' }];
 
 function load<T extends string>(k: string, d: T): T { try { return (localStorage.getItem(k) as T) || d; } catch { return d; } }
 function save(k: string, v: string) { try { localStorage.setItem(k, v); } catch { /* 무시 */ } }
@@ -26,6 +28,7 @@ export function Chords() {
       {sub === 'dict' && <Dict />}
       {sub === 'drill' && <Drill />}
       {sub === 'acc' && <Acc />}
+      {sub === 'scales' && <Scales />}
       {sub === 'free' && <Play />}
     </div>
   );
@@ -142,4 +145,50 @@ export function accPiece(chords: string[], pat: PatternId, id: string, title: st
   const spans = all.map((name, i) => ({ name, beat: i * beats, dur: beats }));
   const { steps, pedalAt } = accompany(spans, pat);
   return { id, title, steps, bpm, beats, timeNum: beats, timeDen: 4, modes: ['wait', 'timed'], chords: spans, pedalAt: pat === 'eight' ? undefined : pedalAt };
+}
+
+/* ── 음계·아르페지오·하농 ── */
+function Scales() {
+  const runs = useRuns();
+  const [what, setWhat] = useState<'scale' | 'arp' | 'hanon'>(() => load('piano-sc-what', 'scale') as 'scale' | 'arp' | 'hanon');
+  const [sid, setSid] = useState<string>(() => load('piano-sc-id', 'M0'));
+  const [arp, setArp] = useState<string>(() => load('piano-sc-arp', 'C'));
+  const [hands, setHands] = useState<'R' | 'L' | 'B'>(() => load('piano-sc-hands', 'R') as 'R' | 'L' | 'B');
+  const [oct, setOct] = useState<1 | 2>(() => (load<string>('piano-sc-oct', '1') === '2' ? 2 : 1));
+  const set = <T,>(k: string, f: (v: T) => void) => (v: T) => { f(v); save(k, String(v)); };
+  const sc = findScale(sid) ?? SCALES[0];
+  const best = (prefix: string) => { const xs = runs.filter((r) => r.exId.startsWith(prefix) && r.mode === 'timed').map((r) => r.score); return xs.length ? Math.max(...xs) : null; };
+  const piece: Piece = useMemo(() => {
+    if (what === 'hanon') return { id: `hanon1:${hands}`, title: '하농 1번', steps: hanon1(hands), bpm: 60, beats: 4, modes: ['wait', 'timed'], sheet: true };
+    if (what === 'arp') return { id: `arp:${arp}:${hands}`, title: `${arp} 아르페지오`, steps: arpeggioSteps(arp, hands), bpm: 60, beats: 4, modes: ['wait', 'timed'], sheet: true, fifths: ({ C: 0, F: -1, G: 1, Am: 0, Dm: -1, Em: 1 } as Record<string, number>)[arp] };
+    return { id: `scale:${sid}:${hands}:${oct}`, title: sc.name, steps: scaleSteps(sc, { hands, octaves: oct, rhythm: oct === 2 ? 'e' : 'q' }), bpm: oct === 2 ? 60 : 72, beats: 4, modes: ['wait', 'timed'], sheet: true, fifths: sc.fifths };
+  }, [what, sid, arp, hands, oct, sc]);
+  return (
+    <>
+      <div className="segmented small">
+        {(['scale', 'arp', 'hanon'] as const).map((w) => <button key={w} className={what === w ? 'on' : ''} onClick={() => set('piano-sc-what', setWhat)(w)} data-testid={`sc-${w}`}>{{ scale: '음계 24조', arp: '아르페지오', hanon: '하농 1번' }[w]}</button>)}
+      </div>
+      <div className="card">
+        {what === 'scale' && (
+          <>
+            <div className="scale-grid">
+              {SCALES.map((x) => {
+                const b = best(`scale:${scaleId(x)}:`);
+                return <button key={scaleId(x)} className={`chip mini${sid === scaleId(x) ? ' on' : ''}${b !== null && b >= 80 ? ' done' : ''}`} onClick={() => set('piano-sc-id', setSid)(scaleId(x))} data-testid={`scale-${scaleId(x)}`} title={b !== null ? `최고 ${b}점` : ''}>{x.name.replace(' 장조', '').replace(' 단조', '')}</button>;
+              })}
+            </div>
+            <p className="hint">윗줄 장조, 아랫줄 화성단음계 (조표 순서). 박자 맞춰 80점을 넘으면 초록. 오른손 {sc.rh.join('')} · 왼손 {sc.lh.join('')}</p>
+          </>
+        )}
+        {what === 'arp' && <div className="chips">{ARPEGGIOS.map((a) => <button key={a.id} className={`chip mini${arp === a.id ? ' on' : ''}`} onClick={() => set('piano-sc-arp', setArp)(a.id)}>{a.id}</button>)}</div>}
+        {what === 'hanon' && <p className="hint">샤를루이 하농 『60개의 연습곡』 1번 (1873). 다섯 손가락을 고르게 — 처음엔 ♩60 기다려 주기로, 손목은 가만히, 손가락만 또박또박.</p>}
+        <div className="row-setting">
+          <div className="segmented small">{(['R', 'L', 'B'] as const).map((h) => <button key={h} className={hands === h ? 'on' : ''} onClick={() => set('piano-sc-hands', setHands)(h)} data-testid={`sch-${h}`}>{{ R: '오른손', L: '왼손', B: '양손' }[h]}</button>)}</div>
+          {what === 'scale' && <div className="segmented small">{([1, 2] as const).map((o) => <button key={o} className={oct === o ? 'on' : ''} onClick={() => set('piano-sc-oct', setOct)(o)}>{o}옥타브</button>)}</div>}
+        </div>
+        {what === 'scale' && <p className="hint">엄지는 <b>손바닥 밑으로</b> 미리 가져가 두고, 3·4번이 엄지 위로 <b>건너갈 때</b> 손목이 튀지 않게.</p>}
+      </div>
+      <PlayRunner key={piece.id} ex={piece} lessonId="tech" song />
+    </>
+  );
 }

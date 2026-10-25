@@ -9,7 +9,7 @@ import { Log } from './pages/Log';
 import { useBackLayer, setExitWarning, restoreGuard } from './state/back';
 import { useMidi } from './state/live';
 
-const TITLES: Record<TabId, string> = { today: '오늘의 연습', learn: '배우기', songs: '곡 연습', chords: '코드 · 반주', log: '연습 기록' };
+const TITLES: Record<TabId, string> = { today: '오늘의 연습', learn: '배우기', songs: '곡 연습', chords: '코드 · 음계', log: '연습 기록' };
 
 export function App({ updatedFrom = null }: { updatedFrom?: string | null }) {
   const [toast, setToast] = useState<string | null>(updatedFrom ? `새 버전으로 업데이트됐어요 · ${__APP_VERSION__}` : null);

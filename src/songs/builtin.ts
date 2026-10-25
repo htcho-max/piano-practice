@@ -2,7 +2,7 @@ import { parseSteps, type Step } from '../music/steps';
 import { parseBarsText, type ChordSpan } from '../music/chordbook';
 
 /** 앱에 들어 있는 곡 (모두 저작권이 끝난 옛 곡·찬송, 쉬운 편곡) */
-export type BuiltinSong = { key: string; title: string; composer: string; note: string; beats: number; timeNum: number; timeDen: number; bpm: number; steps: Step[]; level: 1 | 2 | 3; chords?: ChordSpan[] };
+export type BuiltinSong = { key: string; title: string; composer: string; note: string; beats: number; timeNum: number; timeDen: number; bpm: number; steps: Step[]; level: 1 | 2 | 3; chords?: ChordSpan[]; fifths?: number };
 
 const S = (key: string, title: string, composer: string, note: string, src: string, o: { beats?: number; bpm: number; level: 1 | 2 | 3 }): BuiltinSong => {
   const beats = o.beats ?? 4;
@@ -28,5 +28,6 @@ const CHORDS: Record<string, string> = {
   grace: '. | G | G | C | G | G | D | D | D | G | G | C | G | G | D | G',
 };
 for (const s of BUILTIN_SONGS) if (CHORDS[s.key]) s.chords = parseBarsText(CHORDS[s.key], s.beats).spans;
+for (const s of BUILTIN_SONGS) if (s.key === 'grace') s.fifths = 1;
 
 export function findBuiltin(key: string): BuiltinSong | undefined { return BUILTIN_SONGS.find((s) => s.key === key); }

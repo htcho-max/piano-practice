@@ -10,7 +10,7 @@ import { barCount, onlyHand, totalBeats } from '../music/steps';
 import { harmonize, type MelNote } from '../music/harmonize';
 import { parseBarsText, barsText, leftHand, mergeHands, LEFT_KINDS, type LeftKind } from '../music/chordbook';
 
-export const pieceOfSong = (s: Song): Piece => ({ id: `song:u${s.id}`, title: s.title, steps: s.steps, bpm: s.bpm, beats: s.beats, timeNum: s.timeNum, timeDen: s.timeDen, modes: ['wait', 'timed'], chords: s.chords, pedalAt: s.pedalAt });
+export const pieceOfSong = (s: Song): Piece => ({ id: `song:u${s.id}`, title: s.title, steps: s.steps, bpm: s.bpm, beats: s.beats, timeNum: s.timeNum, timeDen: s.timeDen, modes: ['wait', 'timed'], chords: s.chords, pedalAt: s.pedalAt, fifths: s.fifths });
 
 /** 멜로디(오른손 맨 위 음) → 코드 붙이기용 음 */
 function melodyOf(p: Piece): MelNote[] {
@@ -109,7 +109,7 @@ export function Songs() {
     if (file.current) file.current.value = '';
   };
 
-  const pieceOfBuiltin = (b: (typeof BUILTIN_SONGS)[number]): Piece => ({ id: `song:${b.key}`, title: b.title, steps: b.steps, bpm: b.bpm, beats: b.beats, timeNum: b.timeNum, timeDen: b.timeDen, modes: ['wait', 'timed'], chords: b.chords });
+  const pieceOfBuiltin = (b: (typeof BUILTIN_SONGS)[number]): Piece => ({ id: `song:${b.key}`, title: b.title, steps: b.steps, bpm: b.bpm, beats: b.beats, timeNum: b.timeNum, timeDen: b.timeDen, modes: ['wait', 'timed'], chords: b.chords, fifths: b.fifths });
   
   const meta = (id: string) => {
     const rs = runs.filter((r) => r.exId === id);
@@ -128,7 +128,7 @@ export function Songs() {
           const m = meta(p.id);
           return (
             <li key={b.key}>
-              <button className="ex-item" onClick={() => setOpen({ piece: p, composer: b.composer, note: b.note })} data-testid={`song-${b.key}`}>
+              <button className="ex-item" onClick={() => setOpen({ piece: p, composer: b.composer, note: b.note, fifths: b.fifths })} data-testid={`song-${b.key}`}>
                 <span className="ln">{'★'.repeat(b.level)}</span>
                 <span className="lt"><b>{b.title}</b><small>{b.composer} · {b.note}</small></span>
                 {m && <span className="lp">{m}</span>}

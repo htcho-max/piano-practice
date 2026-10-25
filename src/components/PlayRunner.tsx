@@ -23,7 +23,9 @@ import { useSettings, setSettings } from '../state/settings';
 /** 연습할 음악 한 덩어리 (레슨 연습이든 곡이든) */
 export type Piece = { id: string; title: string; steps: Step[]; bpm: number; beats: number; timeNum?: number; timeDen?: number; modes: Mode[]; sheet?: boolean;
   /** 코드 이름(악보 위에 표시), 페달 바꿀 박(있으면 박자 맞춰에서 페달 채점) */
-  chords?: ChordSpan[]; pedalAt?: number[] };
+  chords?: ChordSpan[]; pedalAt?: number[];
+  /** 조표 (#=+, b=−) */
+  fifths?: number };
 type View = 'staff' | 'names' | 'roll';
 type Phase = 'ready' | 'countin' | 'playing' | 'listening' | 'result';
 type Hands = 'B' | Hand;
@@ -292,7 +294,7 @@ export function PlayRunner({ ex, lessonId, song = false, onDone }: { ex: Piece; 
         </div>
         <label className="row-setting small"><input type="checkbox" checked={hints} onChange={(e) => setHints(e.target.checked)} data-testid="hints" />건반 힌트</label>
       </div>
-      {view === 'staff' && <Staff steps={showSteps} beats={ex.beats} timeNum={ex.timeNum} timeDen={ex.timeDen} mode={used.length === 1 ? (used[0] === 'R' ? 'treble' : 'bass') : 'grand'} cur={cur} states={phase === 'listening' ? [] : states} fingers={settings.fingers && hints} wrap barOffset={barOffset} chords={chords} />}
+      {view === 'staff' && <Staff steps={showSteps} beats={ex.beats} timeNum={ex.timeNum} timeDen={ex.timeDen} mode={used.length === 1 ? (used[0] === 'R' ? 'treble' : 'bass') : 'grand'} cur={cur} states={phase === 'listening' ? [] : states} fingers={settings.fingers && hints} wrap barOffset={barOffset} chords={chords} fifths={ex.fifths} />}
       {view === 'names' && <StepStrip steps={showSteps} cur={cur} states={phase === 'listening' ? [] : states} beats={ex.beats} />}
       <div className="kb-scroll">
         {view === 'roll' && <Roll steps={showSteps} lo={range[0]} hi={range[1]} clock={clock} minWidth={whiteCount * 26} />}

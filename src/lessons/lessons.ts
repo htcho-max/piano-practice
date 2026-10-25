@@ -1,5 +1,6 @@
 import { parseSteps, type Step } from '../music/steps';
 import { accompany, parseBarsText, PATTERNS, type ChordSpan, type PatternId } from '../music/chordbook';
+import { SCALES, scaleSteps, arpeggioSteps, hanon1 } from '../music/scales';
 
 export type Mode = 'wait' | 'timed';
 
@@ -10,7 +11,7 @@ export type Exercise =
   | { kind: 'find'; id: string; title: string; text: string; questions: FindQuestion[] }
   | { kind: 'read'; id: string; title: string; text: string; level: string; count: number }
   /** sheet: 악보 보고 치기 (처음부터 악보 화면 + 건반 힌트 끔) */
-  | { kind: 'play'; id: string; title: string; text: string; src: string; steps: Step[]; bpm: number; beats: number; modes: Mode[]; sheet?: boolean; chords?: ChordSpan[]; pedalAt?: number[] }
+  | { kind: 'play'; id: string; title: string; text: string; src: string; steps: Step[]; bpm: number; beats: number; modes: Mode[]; sheet?: boolean; chords?: ChordSpan[]; pedalAt?: number[]; fifths?: number }
   /** 코드 바꾸기 연습 */
   | { kind: 'chords'; id: string; title: string; text: string; chords: string[]; rounds: number; modes: Mode[]; bpm: number };
 
@@ -28,6 +29,10 @@ const acc = (id: string, title: string, text: string, bars: string, pat: Pattern
   const r = accompany(spans, pat);
   return { kind: 'play', id, title, text, src: '', steps: r.steps, bpm: o.bpm ?? 60, beats, modes: ['wait', 'timed'], sheet: true, chords: spans, pedalAt: o.pedal ? r.pedalAt : undefined };
 };
+/** 음계·테크닉 연습 (이미 만든 칸으로) */
+const tech = (id: string, title: string, text: string, steps: Step[], o: { bpm?: number; fifths?: number; modes?: Mode[] } = {}): Exercise =>
+  ({ kind: 'play', id, title, text, src: '', steps, bpm: o.bpm ?? 66, beats: 4, modes: o.modes ?? ['wait', 'timed'], sheet: true, fifths: o.fifths });
+const SC = (pc: number, minor = false) => SCALES.find((x) => x.pc === pc && x.kind === (minor ? 'minor' : 'major'))!;
 const read = (id: string, title: string, text: string, level: string, count = 20): Exercise => ({ kind: 'read', id, title, text, level, count });
 
 /* 자주 쓰는 곡 (모두 저작권이 끝난 옛 곡) */
@@ -323,6 +328,60 @@ export const LESSONS: Lesson[] = [
       chords('l21-drill', '코드 바꾸기: G D Em C', 'G 장조의 I–V–vi–IV. Em = 미·솔·시, D = 레·파♯·라.', ['G', 'D', 'Em', 'C'], { rounds: 3 }),
       chords('l21-down', '내려가는 베이스', '왼손이 도-시-라-솔-파-미-레-솔로 내려가요.', ['C', 'G/B', 'Am', 'C/G', 'F', 'C/E', 'Dm', 'G'], { rounds: 2 }),
       acc('l21-eight', '8비트: G D Em C', '오른손 코드를 8분음표로, 왼손 근음은 1·3박.', 'G | D | Em | C | G | D | Em | C', 'eight', { bpm: 72 }),
+    ],
+  },
+  {
+    id: 'l22', n: 22, title: '엄지 밑으로 넘기기', goal: '다섯 손가락 밖으로 — 음계의 시작',
+    body: [
+      '손가락은 다섯 개인데 음계는 여덟 음이에요. 그래서 **엄지가 손바닥 밑으로 지나가** 다음 자리로 옮겨요 (오른손 올라갈 때: 1-2-3 → 엄지가 3번 밑으로 → 1-2-3-4-5).',
+      '내려올 때는 반대로 **3번이 엄지 위로 건너가요**. 왼손은 거울처럼: 올라갈 때 3번이 엄지 위로, 내려올 때 엄지가 밑으로.',
+      '요령: 엄지는 미리 손바닥 밑으로 **준비**해 두고, 넘어갈 때 **손목이 들리거나 팔꿈치가 튀지 않게**. 소리가 고르게 나는지 귀로 들어요.',
+    ],
+    tips: ['처음엔 아주 느리게 — 넘어가는 곳에서 멈칫하지 않는 것이 목표', '손목은 수평으로 미끄러지듯'],
+    exercises: [
+      play('l22-thumb', '엄지 넘기기 준비', '도레미 다음 엄지가 밑으로 가서 파. 다시 3번이 엄지 위로 건너 미.', 'R1:C4/q R2:D4/q R3:E4/q R1:F4/q | R3:E4/q R2:D4/q R1:C4/h | R1:C4/q R2:D4/q R3:E4/q R1:F4/q | R2:G4/q R1:F4/q R3:E4/h | R2:D4/q R3:E4/q R1:F4/q R3:E4/q | R2:D4/q R3:E4/q R2:D4/q R1:C4/q | R1:C4/w', { bpm: 66, sheet: true }),
+      tech('l22-crh', '다장조 음계 (오른손)', '1-2-3, 엄지 넘겨 1-2-3-4-5. 내려올 때 3번이 건너감.', scaleSteps(SC(0), { hands: 'R', octaves: 1, rhythm: 'q' }), { bpm: 66 }),
+      tech('l22-clh', '다장조 음계 (왼손)', '5-4-3-2-1, 3번이 엄지 위로 건너 3-2-1.', scaleSteps(SC(0), { hands: 'L', octaves: 1, rhythm: 'q' }), { bpm: 66 }),
+    ],
+  },
+  {
+    id: 'l23', n: 23, title: '양손 음계', goal: '두 손이 다른 곳에서 넘어가는 것 맞추기',
+    body: [
+      '양손으로 음계를 치면 **엄지가 넘어가는 곳이 서로 달라요** (다장조: 오른손은 파, 왼손은 솔·라). 그래서 처음엔 꽤 헷갈려요.',
+      '방법: 한 손씩 완전히 익힌 뒤 → 양손 **기다려 주기** → 박자 맞춰 느리게. 넘어가는 곳에서 두 손이 어긋나면 양손 ms 로 알려 줘요.',
+      '**사장조**는 파♯ 하나 (조표 ♯ 하나). 손가락은 다장조와 똑같고, 파♯은 4번(오른손)·2번(왼손)이에요.',
+    ],
+    tips: ['도·파(오른손 엄지), 솔(왼손 엄지) — 엄지가 언제 오는지 소리 내어 세어 보기', '조표를 보고 파는 늘 파♯'],
+    exercises: [
+      tech('l23-c', '다장조 양손', '한 옥타브, 두 손이 한 옥타브 떨어져서 나란히.', scaleSteps(SC(0), { hands: 'B', octaves: 1, rhythm: 'q' }), { bpm: 60 }),
+      tech('l23-g', '사장조 양손', '조표 ♯ 하나 (파♯).', scaleSteps(SC(7), { hands: 'B', octaves: 1, rhythm: 'q' }), { bpm: 60, fifths: 1 }),
+    ],
+  },
+  {
+    id: 'l24', n: 24, title: '단음계와 아르페지오', goal: '단조 소리와 화음을 펼쳐 넓게 치기',
+    body: [
+      '**가단조(Am)**는 조표가 없는 단조예요. 이 앱은 7음을 올린 **화성단음계**를 써요: 라 시 도 레 미 파 **솔♯** 라 — 끝에서 독특한 소리가 나요.',
+      '**아르페지오**는 코드 음을 하나씩 펼쳐 여러 옥타브를 오르내리는 것. 반주에서 왼손 펼친화음, 찬양 간주·엔딩에 자주 써요. 오른손 1-2-3 다음 엄지가 넘어가 1-2-3-5.',
+    ],
+    tips: ['아르페지오는 간격이 넓어서 엄지 넘기기를 더 일찍 준비', '팔을 옆으로 부드럽게 옮기며 손목은 수평'],
+    exercises: [
+      tech('l24-am', '가단조 화성단음계 (오른손)', '솔♯ 에 주의. 손가락은 다장조와 같아요.', scaleSteps(SC(9, true), { hands: 'R', octaves: 1, rhythm: 'q' }), { bpm: 66 }),
+      tech('l24-arp', 'C 아르페지오 (오른손)', '도-미-솔-도-미-솔-도, 2옥타브 오르내림.', arpeggioSteps('C', 'R', 'q'), { bpm: 66 }),
+      tech('l24-arp2', 'Am 아르페지오 (양손)', '왼손은 5-4-2-1, 4-2-1.', arpeggioSteps('Am', 'B', 'q'), { bpm: 56 }),
+    ],
+  },
+  {
+    id: 'l25', n: 25, title: '하농과 여러 조', goal: '매일 손가락 운동 + 찬양에 많은 조 익히기',
+    body: [
+      '**하농 1번**은 150년 넘게 쓰인 손가락 운동이에요. 도-미-파-솔-라-솔-파-미 무늬를 한 칸씩 올라갔다 내려와요. 다섯 손가락 모두 **고르고 독립적으로** 움직이게 해 줘요.',
+      '찬양에 많은 **바장조(F, ♭ 하나)**와 **라장조(D, ♯ 둘)**도 쳐 봐요. 바장조 오른손은 1-2-3-4, 1-2-3-4 (시♭ 에 4번).',
+      '이제 "코드·음계" 탭의 **음계 24조**에서 모든 조를 연습할 수 있어요. 박자 맞춰 80점을 넘은 조는 초록으로 표시돼요.',
+    ],
+    tips: ['하농은 매일 2~3분, 처음 ♩60 → 조금씩', '조표를 먼저 보고 어느 검은 건반을 쓰는지 확인'],
+    exercises: [
+      tech('l25-hanon', '하농 1번 (양손)', '8분음표로 고르게. 처음엔 기다려 주기로 무늬를 익혀요.', hanon1('B'), { bpm: 56 }),
+      tech('l25-f', '바장조 양손', '오른손 1234 1234, 왼손 54321 321.', scaleSteps(SC(5), { hands: 'B', octaves: 1, rhythm: 'q' }), { bpm: 60, fifths: -1 }),
+      tech('l25-d', '라장조 양손', '파♯·도♯. 손가락은 다장조와 같아요.', scaleSteps(SC(2), { hands: 'B', octaves: 1, rhythm: 'q' }), { bpm: 60, fifths: 2 }),
     ],
   },
 ];

@@ -340,6 +340,29 @@ try {
     if (await page.getByRole('button', { name: /^‹/ }).first().isVisible().catch(() => false)) await page.getByRole('button', { name: /^‹/ }).first().click();
     ok(await page.getByTestId('lesson-21').isVisible(), '21과까지');
 
+
+    // 14. v0.5 — 음계·하농
+    await tab(page, '코드');
+    await page.getByTestId('sub-scales').click();
+    await page.getByTestId('sc-scale').click();
+    await page.getByTestId('scale-M7').click(); // 사장조
+    await page.getByTestId('sch-R').click();
+    await page.getByRole('button', { name: '1옥타브' }).click();
+    await page.getByTestId('wait-hint').waitFor(); await wait(page, 200);
+    const GS = [55, 57, 59, 60, 62, 64, 66, 67, 66, 64, 62, 60, 59, 57, 55];
+    for (const n of GS) { await tap(page, n); await wait(page, 90); }
+    await page.getByTestId('result').waitFor({ timeout: 3000 });
+    ok((await text(page.getByTestId('score'))) === '100점', `사장조 오른손 ${await text(page.getByTestId('score'))}`);
+    await page.getByTestId('view-names').click();
+    ok((await text(page.getByTestId('step-3'))).includes('1'), '파♯ 앞 도는 엄지(1)');
+    await page.getByTestId('view-staff').click();
+    await page.getByTestId('sc-hanon').click();
+    await page.getByTestId('sch-B').click();
+    ok(await page.locator('[data-testid="staff"] .beam').count() > 50, `하농 빔 ${await page.locator('[data-testid="staff"] .beam').count()}`);
+    await tab(page, '배우기');
+    if (await page.getByRole('button', { name: /^‹/ }).first().isVisible().catch(() => false)) await page.getByRole('button', { name: /^‹/ }).first().click();
+    ok(await page.getByTestId('lesson-25').isVisible(), '25과까지');
+
     // 8. 오늘·기록
     await tab(page, '오늘');
     await wait(page, 300);

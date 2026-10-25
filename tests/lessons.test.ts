@@ -17,7 +17,7 @@ describe('레슨 데이터', () => {
       if (e.kind !== 'play') continue;
       expect(totalBeats(e.steps) % e.beats, `${e.id} 마디`).toBe(0);
       // 코드(한 손 세 음 이상)를 누르는 연습은 손가락이 코드마다 달라서 빼고
-      const chordal = e.steps.some((s) => s.notes.filter((n) => n.hand === 'R').length >= 3);
+      const chordal = e.steps.some((s) => s.notes.filter((n) => n.hand === 'R').length >= 3) || l.n >= 22; // 코드·엄지 넘기기 연습은 빼고
       for (const hand of (chordal ? [] : ['R', 'L']) as ('R' | 'L')[]) {
         const map = new Map<number, number>();
         for (const s of e.steps) for (const n of s.notes) {

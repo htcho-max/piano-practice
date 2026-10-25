@@ -12,7 +12,7 @@ export type Acc = 'sharp' | 'flat' | 'natural';
 export type LNote = { midi: number; y: number; acc?: Acc; step: number; finger?: number; hand: 'R' | 'L' };
 export type LItem =
   /** tieTo: 붙임줄로 이어지는 다음 조각의 박, cont: 앞 조각에서 이어진 것 */
-  | { kind: 'chord'; staff: Clef; beat: number; dur: number; notes: LNote[]; stemUp: boolean; ledgers: number[]; tieTo?: number; cont?: boolean }
+  | { kind: 'chord'; staff: Clef; beat: number; dur: number; notes: LNote[]; stemUp: boolean; ledgers: number[]; tieTo?: number; cont?: boolean; beam?: 'start' | 'end' }
   | { kind: 'rest'; staff: Clef; beat: number; dur: number };
 export type Layout = { items: LItem[]; staves: Clef[]; beats: number; total: number; bars: number[]; onsets: number[] };
 
@@ -85,7 +85,18 @@ export function splitNote(beat: number, dur: number, beats: number): { beat: num
   return out;
 }
 
-export function layoutSteps(steps: Step[], beats = 4, mode: StaffMode = 'grand', totalOverride?: number): Layout {
+/** 조표: 글자(0=C … 6=B)마다 올림(+1)/내림(−1) */
+export function keyAlters(fifths: number): number[] {
+  const a = [0, 0, 0, 0, 0, 0, 0];
+  const SH = [3, 0, 4, 1, 5, 2, 6]; // F C G D A E B
+  const FL = [6, 2, 5, 1, 4, 0, 3]; // B E A D G C F
+  for (let i = 0; i < Math.min(7, Math.abs(fifths)); i++) a[(fifths > 0 ? SH : FL)[i]] = fifths > 0 ? 1 : -1;
+  return a;
+}
+
+export function layoutSteps(steps: Step[], beats = 4, mode: StaffMode = 'grand', totalOverride?: number, fifths = 0): Layout {
+  const keyA = keyAlters(fifths);
+  const defSpell: 'sharp' | 'flat' = fifths < 0 ? 'flat' : 'sharp';
   const staves: Clef[] = mode === 'grand' ? ['treble', 'bass'] : [mode];
   const staffOf = (n: PNote): Clef => (mode === 'grand' ? (n.hand === 'R' ? 'treble' : 'bass') : mode);
   const end = steps.length ? Math.max(...steps.map((s) => s.beat + Math.max(s.dur, ...s.notes.map((n) => n.len ?? s.dur)))) : beats;
@@ -114,13 +125,13 @@ export function layoutSteps(steps: Step[], beats = 4, mode: StaffMode = 'grand',
       const bn = Math.floor(c.beat / beats + 1e-6);
       if (bn !== barNo) { barNo = bn; barAcc = new Map(); }
       const notes: LNote[] = c.notes.map(({ n, step }) => {
-        const { dia, alter } = diatonic(n.midi, n.spell);
-        const prev = barAcc.get(dia) ?? 0;
+        const { dia, alter } = diatonic(n.midi, n.spell ?? defSpell);
+        const prev = barAcc.get(dia) ?? keyA[((dia % 7) + 7) % 7];
         let acc: Acc | undefined;
         if (alter !== prev) { acc = alter > 0 ? 'sharp' : alter < 0 ? 'flat' : 'natural'; barAcc.set(dia, alter); }
         return { midi: n.midi, y: staffY(dia, staff), acc, step, finger: n.finger, hand: n.hand };
       }).sort((a, b) => b.y - a.y);
-      const ledgers = [...new Set(c.notes.flatMap(({ n }) => ledgerLines(diatonic(n.midi, n.spell).dia, staff)))].sort((a, b) => a - b);
+      const ledgers = [...new Set(c.notes.flatMap(({ n }) => ledgerLines(diatonic(n.midi, n.spell ?? defSpell).dia, staff)))].sort((a, b) => a - b);
       const mid = notes.reduce((a, x) => a + x.y, 0) / notes.length;
       // 마디를 넘거나 한 음표로 못 쓰는 길이는 붙임줄로 나눔
       const pieces = splitNote(c.beat, c.dur, beats);
@@ -135,5 +146,18 @@ export function layoutSteps(steps: Step[], beats = 4, mode: StaffMode = 'grand',
   const bars: number[] = [];
   for (let b = beats; b < total - 1e-6; b += beats) bars.push(b);
   const onsets = [...new Set(items.map((it) => it.beat))].sort((a, b) => a - b);
+  // 한 박 안의 8분음표 둘은 빔으로 묶음 (기둥 방향도 맞춤)
+  for (const staff of staves) {
+    const ch = items.filter((it): it is Extract<LItem, { kind: 'chord' }> => it.kind === 'chord' && it.staff === staff).sort((a, b) => a.beat - b.beat);
+    for (let i = 0; i + 1 < ch.length; i++) {
+      const a = ch[i], b = ch[i + 1];
+      if (Math.abs(a.dur - 0.5) < 1e-6 && Math.abs(b.dur - 0.5) < 1e-6 && Math.abs(a.beat % 1) < 1e-6 && Math.abs(b.beat - a.beat - 0.5) < 1e-6 && !a.beam) {
+        const ys = [...a.notes, ...b.notes].map((n) => n.y);
+        const up = ys.reduce((x, y) => x + y, 0) / ys.length >= 2;
+        a.stemUp = up; b.stemUp = up; a.beam = 'start'; b.beam = 'end';
+        i++;
+      }
+    }
+  }
   return { items, staves, beats, total, bars, onsets };
 }
