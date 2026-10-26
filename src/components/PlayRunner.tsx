@@ -115,7 +115,9 @@ export function PlayRunner({ ex, lessonId, song = false, onDone }: { ex: Piece; 
 
   const save = useCallback((r: WaitResult | TimedResult | FreeResult, g?: TimedGrader, w?: WaitGrader | FreeGrader) => {
     if (r.mode === 'free') {
-      void addRun({ exId: ex.modes[0] === 'free' ? ex.id : `${ex.id}:free`, lessonId, date: localDate(), ts: Date.now(), mode: 'free', hands: 'B', bpm: null, score: r.score, passed: r.score >= PASS_SCORE && !section, seconds: Math.round(r.seconds), detail: freeLine(r), section: section ?? [1, nBars] });
+      const be: Record<number, number> = {};
+      r.errorsPerStep.forEach((n, i) => { const st = steps[i]; if (n && st) { const b = barOf(st, ex.beats) + barOffset; be[b] = (be[b] ?? 0) + n; } });
+      void addRun({ barErrors: be, exId: ex.modes[0] === 'free' ? ex.id : `${ex.id}:free`, lessonId, date: localDate(), ts: Date.now(), mode: 'free', hands: 'B', bpm: null, score: r.score, passed: r.score >= PASS_SCORE && !section, seconds: Math.round(r.seconds), detail: freeLine(r), section: section ?? [1, nBars] });
       return;
     }
     const full = hands === 'B' || used.length === 1;

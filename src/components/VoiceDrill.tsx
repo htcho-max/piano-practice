@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Keyboard, type KeyMark } from './Keyboard';
 import { useFlash } from './useFlash';
 import { onInput, heldNotes } from '../midi/input';
-import { parseChord, bassNote } from '../music/chordbook';
+import { parseChord, bassNote, rhFingers } from '../music/chordbook';
 import { underVoices, judgeVoicing, isChordTone, type VoiceItem } from '../music/melodyvoice';
 import { noteName, label } from '../music/notes';
 import { piano } from '../audio/piano';
@@ -74,8 +74,8 @@ export function VoiceDrill({ id, lessonId, items, onDone }: { id: string; lesson
   };
   const marks = new Map<number, KeyMark>();
   if (it && !res) {
-    marks.set(it.mel, { hand: 'R', finger: 5, kind: state.ok ? 'ok' : 'now' });
-    if (hints) { rec[idx].forEach((m, i) => marks.set(m, { hand: 'R', finger: rec[idx].length === 2 ? [1, 3][i] : 1, kind: 'soon' })); marks.set(bassNote(c!), { hand: 'L', finger: 5, kind: 'soon' }); }
+    marks.set(it.mel, { hand: 'R', finger: 5, kind: state.ok ? 'ok' : 'now' }); // 멜로디는 늘 5번
+    if (hints) { const f = rhFingers([...rec[idx], it.mel]); rec[idx].forEach((m, i) => marks.set(m, { hand: 'R', finger: f[i], kind: 'soon' })); marks.set(bassNote(c!), { hand: 'L', finger: 5, kind: 'soon' }); }
   }
   const next = items[idx + 1];
 

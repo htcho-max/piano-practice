@@ -48,12 +48,12 @@ describe('양손 반주 만들기', () => {
     expect(counts[2]).toBeGreaterThan(counts[1]);
     expect(counts[3]).toBeGreaterThan(counts[2]);
   });
-  it('경과음 아래는 화음 없음, 아래 음은 멜로디가 내려오면 뗌', () => {
+  it('경과음 아래는 화음 없음, 아래 음은 멜로디 길이만큼', () => {
     const right2 = parseSteps('R:E4/q R:D4/q R:C4/h');
     const spans = parseBarsText('C', 4).spans;
     const st = arrangeBoth(right2, spans, 3, 4, 4);
     expect(st[0].notes.filter((n) => n.hand === 'R').map((n) => n.midi)).toEqual([55, 60, 64]);
-    // 솔·도는 레가 나오기 전까지(1박)만
+    // 솔·도는 미와 같이 1박
     expect(st[0].notes.find((n) => n.midi === 60)!.len ?? st[0].dur).toBeCloseTo(1);
     expect(st[1].notes.filter((n) => n.hand === 'R').map((n) => n.midi)).toEqual([62]);
     expect(st[2].notes.filter((n) => n.hand === 'R').map((n) => n.midi)).toEqual([55, 60]);

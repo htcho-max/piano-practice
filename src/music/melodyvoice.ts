@@ -9,7 +9,7 @@
  *  4. 화음 + 왼손 펼침     : 3단계 오른손 + 왼손 근음-5음-옥타브 펼친화음
  *
  * "중요한 음" = 코드가 바뀌는 첫 음, 마디 첫 박·가운데 박, 한 박 이상 긴 음 — 그 음이 코드 음일 때만.
- * 경과음(코드 밖 음)은 멜로디만 치고, 아래 음들은 다음 화음 자리나 멜로디가 내려와 부딪히기 전까지 누르고 있음.
+ * 경과음(코드 밖 음)은 멜로디만 치고, 아래 음은 그 멜로디 음 길이만큼 (이어지는 소리는 페달로).
  */
 import { parseChord, bassNote, type Chord, type ChordSpan } from './chordbook';
 import type { PNote, Step } from './steps';
@@ -185,14 +185,10 @@ export function arrangeBoth(right: Step[], spans: ChordSpan[], level: TwoLevel, 
   const key = (b: number) => Math.round(b * 1000) / 1000;
   const add = (b: number, ns: PNote[]) => ev.set(key(b), [...(ev.get(key(b)) ?? []), ...ns]);
   mel.forEach((m) => add(m.beat, [{ ...m.note, len: m.len }]));
-  hs.forEach((h, k) => {
+  // 아래 음은 멜로디 음과 같은 길이 (악보에 보이는 대로 치기 — 이어지는 소리는 페달로)
+  hs.forEach((h) => {
     const m = mel[h.i];
-    // 아래 음은 다음 화음 자리·코드 끝·멜로디가 내려와 부딪히는 곳까지 누르고 있기
-    let end = Math.min(h.sp.beat + h.sp.dur, hs[k + 1] ? mel[hs[k + 1].i].beat : Infinity, total);
-    const top = Math.max(...h.under);
-    for (let j = h.i + 1; j < mel.length && mel[j].beat < end - EPS; j++) if (mel[j].note.midi <= top + 2) { end = mel[j].beat; break; }
-    const len = Math.max(m.len, end - m.beat);
-    add(m.beat, h.under.map((u) => ({ midi: u, hand: 'R' as const, len, ...spellFor(u, h.c) })));
+    add(m.beat, h.under.map((u) => ({ midi: u, hand: 'R' as const, len: m.len, ...spellFor(u, h.c) })));
   });
   for (const e of left) add(e.beat, e.notes);
   const beatsSorted = [...ev.keys()].sort((a, b) => a - b);
