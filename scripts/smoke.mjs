@@ -428,6 +428,29 @@ try {
     }
     await page.getByTestId('result').waitFor({ timeout: 3000 });
     ok(Number((await text(page.getByTestId('score'))).replace('점', '')) >= 95, `자유 반주 점수 ${await text(page.getByTestId('score'))} · ${await text(page.getByTestId('verdict'))}`);
+    // 박자 맞춰 자유 반주
+    await page.getByTestId('again').click().catch(() => {});
+    await page.getByTestId('free-timed').click();
+    {
+      const bpm = Number((await text(page.getByTestId('bpm'))).replace('♩', ''));
+      const MEL = [[62, 2], [67, 3], [71, 5], [67, 5.5], [71, 6], [69, 8], [67, 9], [64, 11], [62, 12], [62, 14], [67, 15], [71, 17], [67, 17.5], [71, 18], [69, 20], [74, 21], [74, 24], [71, 26], [74, 27], [71, 29], [67, 29.5], [71, 30], [69, 32], [67, 33], [64, 35], [62, 36], [62, 38], [67, 39], [71, 41], [67, 41.5], [71, 42], [69, 44], [67, 45]];
+      const ONSET = { 3: 'G', 9: 'C', 12: 'G', 27: 'G', 33: 'C', 36: 'G', 45: 'G' };
+      const PCS = { G: [7, 11, 2], C: [0, 4, 7] }, BASS = { G: 43, C: 48 };
+      const notes = [];
+      for (const [m, b] of MEL) {
+        notes.push([m, b, 0]);
+        const ch = ONSET[b];
+        if (!ch) continue;
+        notes.push([BASS[ch], b, -15]);
+        let got = 0, last = 999;
+        for (let p = m - 3; p >= m - 12 && got < 2; p--) if (PCS[ch].includes(p % 12) && p % 12 !== m % 12 && last - p >= 3) { notes.push([p, b, -10]); got++; last = p; }
+      }
+      await page.getByTestId('timed-start').click();
+      await playTimed(page, bpm, notes);
+      await page.getByTestId('result').waitFor({ timeout: 60000 });
+      ok(Number((await text(page.getByTestId('score'))).replace('점', '')) >= 95, `박자 맞춰 자유 반주 ${await text(page.getByTestId('score'))} · ${await text(page.getByTestId('verdict'))}`);
+      await page.getByTestId('free-wait').click();
+    }
     await tab(page, '배우기');
     if (await page.getByRole('button', { name: /^‹/ }).first().isVisible().catch(() => false)) await page.getByRole('button', { name: /^‹/ }).first().click();
     ok(await page.getByTestId('lesson-27').isVisible(), '27과까지');

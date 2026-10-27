@@ -104,3 +104,39 @@ describe('붙임줄로 나누기', () => {
     expect(ch.some((c) => c.kind === 'chord' && c.cont)).toBe(true);
   });
 });
+
+describe('빔 묶기', () => {
+  const beamsOf = (src: string, unit = 1, beats = 4) => layoutSteps(parseSteps(src), beats, 'treble', undefined, 0, unit).beams;
+  it('한 박 안 16분 넷 = 묶음 하나, 둘째 빔 전체', () => {
+    const b = beamsOf('R:C5/s R:D5/s R:E5/s R:F5/s R:G5/q R:G5/h');
+    expect(b).toHaveLength(1);
+    expect(b[0].items).toHaveLength(4);
+    expect(b[0].sub).toEqual([[0, 3]]);
+    expect(b[0].stemUp).toBe(false);
+  });
+  it('8분 + 16분 둘, 점8분 + 16분 (짧은 빔), 박을 넘지 않음', () => {
+    const b = beamsOf('R:C5/e R:D5/s R:E5/s R:C5/e. R:D5/s R:E5/h');
+    expect(b).toHaveLength(2);
+    expect(b[0].sub).toEqual([[1, 2]]);
+    expect(b[1].stubs).toEqual([{ i: 1, dir: -1 }]);
+  });
+  it('16분-8분-16분 당김 (가운데 8분)', () => {
+    const b = beamsOf('R:C5/s R:D5/e R:E5/s R:F5/q R:G5/h');
+    expect(b[0].items).toHaveLength(3);
+    expect(b[0].stubs).toEqual([{ i: 0, dir: 1 }, { i: 2, dir: -1 }]);
+  });
+  it('쉼표가 끼면 끊고, 6/8 은 점4분마다', () => {
+    expect(beamsOf('R:C5/e r/e R:C5/e R:C5/e R:C5/h')).toHaveLength(1);
+    const b = beamsOf('R:C5/e R:D5/e R:E5/e R:F5/e R:G5/e R:A5/e', 1.5, 3);
+    expect(b.map((x) => x.items.length)).toEqual([3, 3]);
+  });
+});
+
+describe('당김음 나누기', () => {
+  it('16분 자리에서 박을 넘으면 박에서 나눔, 8분 뒤 4분은 그대로', () => {
+    expect(splitNote(0.5, 1.25, 4)).toEqual([{ beat: 0.5, dur: 0.5 }, { beat: 1, dur: 0.75 }]);
+    expect(splitNote(1.75, 2.25, 4)).toEqual([{ beat: 1.75, dur: 0.25 }, { beat: 2, dur: 2 }]);
+    expect(splitNote(0.5, 1, 4)).toEqual([{ beat: 0.5, dur: 1 }]);
+    expect(splitNote(1.5, 1.5, 4)).toEqual([{ beat: 1.5, dur: 1.5 }]);
+  });
+});

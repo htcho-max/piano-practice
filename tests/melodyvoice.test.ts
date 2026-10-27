@@ -109,3 +109,25 @@ describe('자유 반주 채점', () => {
     expect(g.result(10).topErrors).toBe(1);
   });
 });
+
+import { FreeTimedGrader } from '../src/practice/free';
+describe('박자 맞춰 자유 반주', () => {
+  // ♩60: 1박 = 1000ms, 멜로디 미(C) 레 도(F)
+  const steps = parseSteps('R:E4/q R:D4/q R:C4/h');
+  const spans = parseBarsText('C . F .', 4).spans;
+  it('멜로디 박자 + 화음 + 코드 밖 음', () => {
+    const g = new FreeTimedGrader(steps, 60, 0, spans);
+    expect(g.harmStep).toEqual([0, 2]);
+    expect(g.noteOnFree(48, -20, [48]).kind).toBe('harm');
+    expect(g.noteOnFree(55, -10, [48, 55]).kind).toBe('harm');
+    expect(g.noteOnFree(64, 0, [48, 55, 64]).kind).toBe('match');
+    expect(g.noteOnFree(61, 900, [61]).kind).toBe('extra');
+    expect(g.noteOnFree(62, 1000, [62]).kind).toBe('match');
+    g.noteOnFree(53, 2000, [53]); g.noteOnFree(60, 2010, [53, 60]); // 파 + 도(멜로디) → 아래 하나
+    const r = g.finishFree();
+    expect(r.good).toBe(3);
+    expect(r.extra).toBe(1);
+    expect(r.free).toEqual({ harmTotal: 2, harmFull: 1, harmHalf: 1, topErrors: 0 });
+    expect(r.score).toBe(Math.round(60 + 40 * 0.75 - 3));
+  });
+});

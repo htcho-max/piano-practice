@@ -10,7 +10,7 @@ import { piano } from '../audio/piano';
 import { resumeAudio } from '../audio/context';
 import { gradePedal, type PedalResult, type PedalEv } from '../practice/grader';
 import { parseChord, bassNote, type ChordSpan } from '../music/chordbook';
-import { FreeGrader, freeLine, type FreeResult } from '../practice/free';
+import { FreeGrader, FreeTimedGrader, freeLine, freeTimedLine, type FreeResult, type FreeHarm } from '../practice/free';
 import { melodySteps, spanAt, isChordTone } from '../music/melodyvoice';
 import { WaitGrader, TimedGrader, verdictLine, PASS_SCORE, type WaitResult, type TimedResult, type Verdict } from '../practice/grader';
 import { allMidis, handsUsed, onlyHand, totalBeats, sliceBars, barCount, barOf, type Step, type Hand } from '../music/steps';
@@ -68,12 +68,18 @@ export function PlayRunner({ ex, lessonId, song = false, onDone }: { ex: Piece; 
   const baseSteps: Step[] = useMemo(() => (section ? sliceBars(ex.steps, ex.beats, section[0], section[1]) : ex.steps), [ex, section]);
   const barOffset = section ? section[0] - 1 : 0;
   const free = mode === 'free';
+  // 자유 반주: 기다리며 / 박자 맞춰
+  const [freeTimed, setFreeTimedState] = useState(() => loadPref('piano-free-timed', 'off') === 'on');
+  const setFreeTimed = (v: boolean) => { setFreeTimedState(v); savePref('piano-free-timed', v ? 'on' : 'off'); };
+  const timedLike = mode === 'timed' || (free && freeTimed);
   const steps: Step[] = useMemo(() => (free ? melodySteps(baseSteps) : hands === 'B' ? baseSteps : onlyHand(baseSteps, hands)), [baseSteps, hands, free]);
   const beatRef = useRef(0);
   // 구간이면 코드·페달 박도 잘라서
   const secStart = section ? (section[0] - 1) * ex.beats : 0, secEnd = section ? section[1] * ex.beats : Infinity;
   const chords = useMemo(() => ex.chords?.filter((c) => c.beat >= secStart - 1e-6 && c.beat < secEnd - 1e-6).map((c) => ({ ...c, beat: c.beat - secStart })), [ex, secStart, secEnd]);
   const pedalAt = useMemo(() => ex.pedalAt?.filter((b) => b >= secStart - 1e-6 && b < secEnd - 1e-6).map((b) => b - secStart), [ex, secStart, secEnd]);
+  // 자유 반주(박자 맞춰)는 코드가 바뀌는 곳마다 페달
+  const pedalPts = free ? chords?.map((c) => c.beat) : pedalAt;
   const pedalEvs = useRef<PedalEv[]>([]);
   const [pedalRes, setPedalRes] = useState<PedalResult | null>(null);
   const clock = useCallback(() => beatRef.current, []);
@@ -108,12 +114,19 @@ export function PlayRunner({ ex, lessonId, song = false, onDone }: { ex: Piece; 
 
   // 연습을 열거나 모드·손을 바꾸면 기다려 주기는 바로 준비, 박자 맞춰는 시작 버튼 대기
   useEffect(() => {
-    if (mode !== 'timed') startWait();
+    if (!timedLike) startWait();
     else { stopAll(); wait.current = null; timed.current = null; setPhase('ready'); setCur(-1); setStates(steps.map(() => 'todo')); setResult(null); }
     return stopAll;
-  }, [mode, steps, startWait, stopAll]);
+  }, [mode, timedLike, steps, startWait, stopAll]);
 
   const save = useCallback((r: WaitResult | TimedResult | FreeResult, g?: TimedGrader, w?: WaitGrader | FreeGrader) => {
+    if (r.mode === 'timed' && 'free' in r) {
+      const fr = r as TimedResult & { free: FreeHarm };
+      const be: Record<number, number> = {};
+      g?.expected.forEach((e) => { if (e.verdict !== 'good') { const st = steps[e.step]; if (st) { const b = barOf(st, ex.beats) + barOffset; be[b] = (be[b] ?? 0) + 1; } } });
+      void addRun({ barErrors: be, exId: ex.modes[0] === 'free' ? ex.id : `${ex.id}:free`, lessonId, date: localDate(), ts: Date.now(), mode: 'free', hands: 'B', bpm: fr.bpm, score: fr.score, passed: fr.score >= PASS_SCORE && !section, seconds: Math.round((totalBeats(steps) * 60) / fr.bpm), detail: freeTimedLine(fr), section: section ?? [1, nBars] });
+      return;
+    }
     if (r.mode === 'free') {
       const be: Record<number, number> = {};
       r.errorsPerStep.forEach((n, i) => { const st = steps[i]; if (n && st) { const b = barOf(st, ex.beats) + barOffset; be[b] = (be[b] ?? 0) + n; } });
@@ -159,13 +172,13 @@ export function PlayRunner({ ex, lessonId, song = false, onDone }: { ex: Piece; 
     const spb = 60000 / bpm;
     const t0 = first + ex.beats * spb + settings.latencyMs; // 기기 지연 보정 (설정)
     beatRef.current = -ex.beats;
-    const g = new TimedGrader(steps, bpm, t0);
+    const g = free ? new FreeTimedGrader(steps, bpm, t0, chords ?? []) : new TimedGrader(steps, bpm, t0);
     timed.current = g; wait.current = null;
     (window as unknown as { __pianoT0?: number }).__pianoT0 = t0; // 스모크 시험용
     setPhase('countin'); setCur(-1);
     unsubTick.current = metronome.onTick((t) => { if (t.index < ex.beats) setCount(ex.beats - t.index); else setCount(null); });
     // 한 손만 칠 때 다른 손은 앱이 소리 냄
-    if (hands !== 'B') {
+    if (hands !== 'B' && !free) {
       const other = onlyHand(baseSteps, hands === 'R' ? 'L' : 'R');
       other.forEach((s) => s.notes.forEach((n) => piano.schedule(n.midi, 70, perfToAudio(t0 + s.beat * spb), (s.dur * spb) / 1000 - 0.03)));
     }
@@ -178,9 +191,9 @@ export function PlayRunner({ ex, lessonId, song = false, onDone }: { ex: Piece; 
       if (missed.length) setStates((ss) => mark(ss, g));
       if (now > g.endTime + g.window) {
         stopAll();
-        const r = g.finish();
+        const r = g instanceof FreeTimedGrader ? g.finishFree() : g.finish();
         setStates(mark(steps.map(() => 'todo'), g));
-        if (pedalAt?.length) setPedalRes(gradePedal(pedalAt.map((b) => t0 + b * spb), pedalEvs.current));
+        if (pedalPts?.length) setPedalRes(gradePedal(pedalPts.map((b) => t0 + b * spb), pedalEvs.current));
         setResult(r); setPhase('result'); save(r, g); afterTimed(r);
         return;
       }
@@ -208,8 +221,9 @@ export function PlayRunner({ ex, lessonId, song = false, onDone }: { ex: Piece; 
     }
     const g = timed.current;
     if (g && (phase === 'playing' || phase === 'countin') && e.kind === 'on') {
-      const f = g.noteOn(e.note, e.time);
-      if (f.kind === 'match') { doFlash(e.note, 'good'); setStates((ss) => mark(ss, g)); }
+      const f = g instanceof FreeTimedGrader ? g.noteOnFree(e.note, e.time, heldNotes()) : g.noteOn(e.note, e.time);
+      if (f.kind === 'harm') doFlash(e.note, 'good');
+      else if (f.kind === 'match') { doFlash(e.note, 'good'); setStates((ss) => mark(ss, g)); }
       else { doFlash(e.note, 'bad'); setErrors((x) => x + 1); }
     }
   }), [phase, doFlash, save]);
@@ -230,24 +244,24 @@ export function PlayRunner({ ex, lessonId, song = false, onDone }: { ex: Piece; 
       beatRef.current = beat;
       let k = -1; baseSteps.forEach((s, i) => { if (s.beat <= beat) k = i; });
       setCur(k);
-      if (now > end + 300) { stopAll(); setCur(-1); if (mode !== 'timed') startWait(); else setPhase('ready'); return; }
+      if (now > end + 300) { stopAll(); setCur(-1); if (!timedLike) startWait(); else setPhase('ready'); return; }
       raf.current = requestAnimationFrame(loop);
     };
     raf.current = requestAnimationFrame(loop);
   };
-  const stopListen = () => { stopAll(); setCur(-1); if (mode !== 'timed') startWait(); else setPhase('ready'); };
+  const stopListen = () => { stopAll(); setCur(-1); if (!timedLike) startWait(); else setPhase('ready'); };
 
   // 건반 표시: 지금 칸(진하게) + 다음 칸(옅게)
   const showSteps = phase === 'listening' ? baseSteps : steps;
   // 기다려 주기: 떨어지는 건반은 지금 칸 박에 맞춤
-  if (mode !== 'timed' && phase !== 'listening') beatRef.current = cur >= 0 && steps[cur] ? steps[cur].beat : phase === 'result' ? totalBeats(steps) : 0;
+  if (!timedLike && phase !== 'listening') beatRef.current = cur >= 0 && steps[cur] ? steps[cur].beat : phase === 'result' ? totalBeats(steps) : 0;
   const marks = new Map<number, KeyMark>();
   // 힌트를 꺼도: 들어 보기 중이거나, 기다려 주기에서 지금 칸을 한 번 틀리면 보여 줌
-  const showHints = hints || phase === 'listening' || (mode !== 'timed' && cur >= 0 && (wait.current?.errorsPerStep[cur] ?? 0) > 0);
+  const showHints = hints || phase === 'listening' || (!timedLike && cur >= 0 && (wait.current?.errorsPerStep[cur] ?? 0) > 0);
   const nextIdx = nextNonRest(showSteps, cur + 1);
   if (showHints && nextIdx >= 0 && phase !== 'result') showSteps[nextIdx].notes.forEach((n) => marks.set(n.midi, { hand: n.hand, finger: n.finger, kind: 'soon' }));
   const curStep = cur >= 0 ? showSteps[cur] : undefined;
-  if (curStep && phase !== 'result') curStep.notes.forEach((n) => { const ok = hitNow.includes(n.midi) && mode !== 'timed'; if (showHints || ok) marks.set(n.midi, { hand: n.hand, finger: n.finger, kind: ok ? 'ok' : 'now' }); });
+  if (curStep && phase !== 'result') curStep.notes.forEach((n) => { const ok = hitNow.includes(n.midi) && !timedLike; if (showHints || ok) marks.set(n.midi, { hand: n.hand, finger: n.finger, kind: ok ? 'ok' : 'now' }); });
   if (free && hints && curStep && phase === 'playing') {
     const sp = chords && spanAt(chords, curStep.beat);
     const c = sp && parseChord(sp.name);
@@ -258,9 +272,8 @@ export function PlayRunner({ ex, lessonId, song = false, onDone }: { ex: Piece; 
       if (b >= range[0] && !marks.has(b)) marks.set(b, { hand: 'L', kind: 'target' });
     }
   }
-  if (showHints && phase === 'ready' && mode === 'timed') { const f = nextNonRest(steps, 0); if (f >= 0) steps[f].notes.forEach((n) => marks.set(n.midi, { hand: n.hand, finger: n.finger, kind: 'now' })); }
+  if (showHints && phase === 'ready' && timedLike) { const f = nextNonRest(steps, 0); if (f >= 0) steps[f].notes.forEach((n) => marks.set(n.midi, { hand: n.hand, finger: n.finger, kind: 'now' })); }
 
-  const timedLike = mode === 'timed';
   let whiteCount = 0; for (let m = range[0]; m <= range[1]; m++) if (!isBlack(m)) whiteCount++;
   const running = phase === 'countin' || (phase === 'playing' && timedLike);
 
@@ -272,6 +285,12 @@ export function PlayRunner({ ex, lessonId, song = false, onDone }: { ex: Piece; 
             <button className={mode === 'wait' ? 'on' : ''} onClick={() => setMode('wait')} data-testid="mode-wait" disabled={running}>기다려 주기</button>
             <button className={mode === 'timed' ? 'on' : ''} onClick={() => setMode('timed')} data-testid="mode-timed" disabled={running}>박자 맞춰</button>
             {ex.modes.includes('free') && <button className={mode === 'free' ? 'on' : ''} onClick={() => setMode('free')} data-testid="mode-free" disabled={running}>자유 반주</button>}
+          </div>
+        )}
+        {free && (
+          <div className="segmented small" role="group" aria-label="자유 반주 방법">
+            <button className={!freeTimed ? 'on' : ''} onClick={() => setFreeTimed(false)} disabled={running} data-testid="free-wait">기다리며</button>
+            <button className={freeTimed ? 'on' : ''} onClick={() => setFreeTimed(true)} disabled={running} data-testid="free-timed">박자 맞춰</button>
           </div>
         )}
         {used.length > 1 && !free && (
@@ -323,9 +342,9 @@ export function PlayRunner({ ex, lessonId, song = false, onDone }: { ex: Piece; 
         <Keyboard lo={range[0]} hi={range[1]} marks={marks} flash={flash} names={hints ? undefined : 'c'} />
       </div>
 
-      {pedalAt?.length && timedLike && phase !== 'result' ? <p className="hint">🦶 코드가 바뀔 때마다 페달을 <b>뗐다가 바로 다시</b> 밟아요 (코드를 누른 직후). 끝나면 페달도 채점해요.</p> : null}
+      {pedalPts?.length && timedLike && phase !== 'result' ? <p className="hint">🦶 코드가 바뀔 때마다 페달을 <b>뗐다가 바로 다시</b> 밟아요 (코드를 누른 직후). 끝나면 페달도 채점해요.</p> : null}
       {result && phase === 'result' && result.mode === 'free' && <FreeCard r={result} onAgain={startWait} onDone={onDone} />}
-      {result && phase === 'result' && result.mode !== 'free' && <ResultCard pedal={pedalRes} song={song} r={result} hands={hands} needTimed={ex.modes.includes('timed')} onAgain={() => (mode !== 'timed' ? startWait() : startTimed())} onTimed={ex.modes.includes('timed') && mode === 'wait' ? () => setMode('timed') : undefined} onDone={onDone} />}
+      {result && phase === 'result' && result.mode !== 'free' && <ResultCard pedal={pedalRes} song={song} r={result} hands={hands} needTimed={ex.modes.includes('timed')} onAgain={() => (!timedLike ? startWait() : startTimed())} onTimed={ex.modes.includes('timed') && mode === 'wait' ? () => setMode('timed') : undefined} onDone={onDone} />}
     </div>
   );
 }
@@ -380,7 +399,7 @@ function ResultCard({ r, hands, needTimed, onAgain, onTimed, onDone, song, pedal
         <div className="score-big" data-testid="score">{r.score}<small>점</small></div>
         <div>
           <b>{!pass ? '조금 더' : needTimed && r.mode === 'wait' ? '음은 다 익혔어요' : hands === 'B' ? '통과!' : '한 손 통과'}</b>
-          <p className="hint" data-testid="verdict">{verdictLine(r, needTimed)}</p>
+          <p className="hint" data-testid="verdict">{'free' in r ? freeTimedLine(r as TimedResult & { free: FreeHarm }) : verdictLine(r, needTimed)}</p>
         </div>
       </div>
       {r.mode === 'timed' && (
@@ -393,6 +412,7 @@ function ResultCard({ r, hands, needTimed, onAgain, onTimed, onDone, song, pedal
           <span className="muted small">평균 어긋남 {r.meanAbsMs}ms{r.handGapMs !== null ? ` · 양손 ${r.handGapMs}ms` : ''}</span>
         </div>
       )}
+      {'free' in r && (() => { const f = (r as TimedResult & { free: FreeHarm }).free; return f.harmTotal > 0 && <div className="harm-dots" aria-label="화음 넣은 곳">{Array.from({ length: f.harmTotal }, (_, i) => <span key={i}>{i < f.harmFull ? '●' : i < f.harmFull + f.harmHalf ? '◐' : '○'}</span>)}</div>; })()}
       {r.mode === 'timed' && <Calibrate r={r} />}
       {pedal && (
         <p className="hint" data-testid="pedal-result">

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { GLYPHS } from '../music/glyphs';
-import { layoutSteps, type Clef, type StaffMode, type LItem } from '../music/layout';
+import { layoutSteps, type Clef, type StaffMode, type LItem, type Beam } from '../music/layout';
 import type { Step } from '../music/steps';
 import type { StepState } from './StepStrip';
 
@@ -38,7 +38,9 @@ export function Staff({ steps, beats = 4, timeNum, timeDen = 4, mode = 'grand', 
   /** 마디 번호 더하기 (구간 연습일 때 원래 번호) */
   barOffset?: number;
 }) {
-  const lay = useMemo(() => layoutSteps(steps, beats, mode, total, fifths), [steps, beats, mode, total, fifths]);
+  // 6/8·9/8·12/8 은 점4분음표마다 빔
+  const unit = timeDen === 8 && (timeNum ?? 0) % 3 === 0 ? 1.5 : 1;
+  const lay = useMemo(() => layoutSteps(steps, beats, mode, total, fifths, unit), [steps, beats, mode, total, fifths, unit]);
   const nAcc = Math.min(7, Math.abs(fifths));
   const KS = nAcc * 9; // 조표 너비
   const box = useRef<HTMLDivElement>(null);
@@ -131,17 +133,31 @@ export function Staff({ steps, beats = 4, timeNum, timeDen = 4, mode = 'grand', 
         const last = k === systems.length - 1;
         const w = sy.first && systems.length === 1 ? width : (last ? width - 14 : (barList.find((b) => b.beat === sy.to)?.x ?? width)) + shift + (last ? 14 : 2);
         const inRange = (b: number) => b >= sy.from - 1e-6 && b < sy.to - 1e-6;
-        // 빔: 짝 음표와 기둥 끝을 같은 높이로
-        const beamOf = (it: LItem): { x: number; tip: number } | undefined => {
-          if (it.kind !== 'chord' || !it.beam) return undefined;
-          const mate = lay.items.find((o) => o.kind === 'chord' && o.staff === it.staff && o.beam === (it.beam === 'start' ? 'end' : 'start') && Math.abs(o.beat - (it.beam === 'start' ? it.beat + 0.5 : it.beat - 0.5)) < 1e-6);
-          if (!mate || mate.kind !== 'chord') return undefined;
-          const t = top(it.staff);
-          const ys = [...it.notes, ...mate.notes].map((n) => t + n.y * SP);
-          const tip = it.stemUp ? Math.min(...ys) - 3.2 * SP : Math.max(...ys) + 3.2 * SP;
-          const first = it.beam === 'start' ? it : mate, second = it.beam === 'start' ? mate : it;
-          const xs2 = (b: number) => (xs.get(b) ?? 0) + shift + (it.stemUp ? HEAD - 0.6 : 0.6);
-          return { x: it.beam === 'start' ? xs2(second.beat) : xs2(first.beat), tip };
+        // 빔 묶음: 기둥 x, 빔 선 (살짝 기울게, 기둥은 2.5칸 이상)
+        const geo = new Map<Beam, { sx: number[]; y: (x: number) => number }>();
+        for (const bm of lay.beams) {
+          if (!inRange(bm.items[0].beat)) continue;
+          const t = top(bm.staff);
+          const sx = bm.items.map((c) => (xs.get(c.beat) ?? 0) + shift + (bm.stemUp ? HEAD - 0.6 : 0.6));
+          const ext = bm.items.map((c) => { const ys = c.notes.map((n) => t + n.y * SP); return bm.stemUp ? Math.min(...ys) : Math.max(...ys); });
+          const dx = sx[sx.length - 1] - sx[0] || 1;
+          const k = Math.max(-SP, Math.min(SP, ext[ext.length - 1] - ext[0])) / dx;
+          const dir = bm.stemUp ? -1 : 1;
+          let y0 = ext[0] + dir * 3.2 * SP;
+          // 모든 기둥이 2.5칸 이상 되게 빔을 옮김
+          bm.items.forEach((_, i) => {
+            const need = ext[i] + dir * 2.5 * SP;
+            const at = y0 + k * (sx[i] - sx[0]);
+            if (bm.stemUp ? at > need : at < need) y0 += need - at;
+          });
+          geo.set(bm, { sx, y: (x) => y0 + k * (x - sx[0]) });
+        }
+        const tipOf = (it: LItem): number | undefined => {
+          if (it.kind !== 'chord' || it.beam === undefined) return undefined;
+          const bm = lay.beams[it.beam];
+          const g = bm && geo.get(bm);
+          if (!g) return undefined;
+          return g.y(g.sx[bm.items.indexOf(it)]);
         };
         const barNo = Math.round(sy.from / beats) + 1 + barOffset;
         return (
@@ -159,14 +175,31 @@ export function Staff({ steps, beats = 4, timeNum, timeDen = 4, mode = 'grand', 
               </g>
             ))}
             {barList.filter((b) => b.beat > sy.from + 1e-6 && b.beat < sy.to - 1e-6).map((b) => <line key={b.beat} x1={b.x + shift} x2={b.x + shift} y1={yTop} y2={yBot} className="bar-line" />)}
-            {chords?.filter((c) => inRange(c.beat)).map((c) => {
-              const at = lay.onsets.find((o) => o >= c.beat - 1e-6) ?? c.beat;
-              return <text key={`c${c.beat}`} x={(xs.get(at) ?? 0) + shift} y={16} className="chord-sym" data-testid="chord-sym">{c.name}</text>;
-            })}
+            {(() => {
+              // 코드 이름이 겹치면 오른쪽으로 밀기
+              let right = -Infinity;
+              return chords?.filter((c) => inRange(c.beat)).map((c) => {
+                const at = lay.onsets.find((o) => o >= c.beat - 1e-6) ?? c.beat;
+                const x = Math.max((xs.get(at) ?? 0) + shift, right + 6);
+                right = x + c.name.length * 8.6;
+                return <text key={`c${c.beat}`} x={x} y={16} className="chord-sym" data-testid="chord-sym">{c.name}</text>;
+              });
+            })()}
             {!last && <line x1={w - 1} x2={w - 1} y1={yTop} y2={yBot} className="bar-line" />}
             {last && !bare && <line x1={w - 8} x2={w - 8} y1={yTop} y2={yBot} className="bar-line" />}
             {last && !bare && <line x1={w - 4} x2={w - 4} y1={yTop} y2={yBot} className="bar-line end" />}
-            {lay.items.filter((it) => (!bare || it.kind === 'chord') && inRange(it.beat)).map((it, i) => <Item key={i} it={it} x={(xs.get(it.beat) ?? 0) + shift} tieX={it.kind === 'chord' && it.tieTo !== undefined ? (inRange(it.tieTo) ? (xs.get(it.tieTo) ?? 0) + shift : w - 2) : undefined} beamTo={beamOf(it)} top={top(it.staff)} colorOf={colorOf} fingers={fingers} />)}
+            {lay.items.filter((it) => (!bare || it.kind === 'chord') && inRange(it.beat)).map((it, i) => <Item key={i} it={it} x={(xs.get(it.beat) ?? 0) + shift} tieX={it.kind === 'chord' && it.tieTo !== undefined ? (inRange(it.tieTo) ? (xs.get(it.tieTo) ?? 0) + shift : w - 2) : undefined} tip={tipOf(it)} top={top(it.staff)} colorOf={colorOf} fingers={fingers} />)}
+            {[...geo.entries()].map(([bm, g], bi) => {
+              const off = (bm.stemUp ? 1 : -1) * 0.75 * SP;
+              const seg = (x1: number, x2: number, o: number, key: string) => <line key={key} x1={x1} x2={x2} y1={g.y(x1) + o} y2={g.y(x2) + o} className="beam" />;
+              return (
+                <g key={`b${bi}`} className="beams">
+                  {seg(g.sx[0], g.sx[g.sx.length - 1], 0, 'p')}
+                  {bm.sub.map(([a, b]) => seg(g.sx[a], g.sx[b], off, `s${a}`))}
+                  {bm.stubs.map(({ i, dir }) => seg(g.sx[i], g.sx[i] + dir * 8, off, `t${i}`))}
+                </g>
+              );
+            })}
           </svg>
         );
       })}
@@ -183,7 +216,7 @@ function keySig(c: Clef, fifths: number): number[] {
   return base.slice(0, n).map((y) => y + (c === 'bass' ? 1 : 0));
 }
 
-function Item({ it, x, top, colorOf, fingers, tieX, beamTo }: { it: LItem; x: number; top: number; colorOf: (s: number) => string | undefined; fingers: boolean; tieX?: number; beamTo?: { x: number; tip: number } }) {
+function Item({ it, x, top, colorOf, fingers, tieX, tip }: { it: LItem; x: number; top: number; colorOf: (s: number) => string | undefined; fingers: boolean; tieX?: number; tip?: number }) {
   if (it.kind === 'rest') {
     const d = it.dur;
     if (d >= 4 || d === 3) return <G name="restWhole" x={x} y={top + SP} />;
@@ -211,9 +244,8 @@ function Item({ it, x, top, colorOf, fingers, tieX, beamTo }: { it: LItem; x: nu
           {dotted && <G name="augmentationDot" x={x + (d >= 4 ? 422 * K : HEAD) + 3} y={top + (Number.isInteger(n.y) ? n.y - 0.5 : n.y) * SP} />}
         </g>
       ))}
-      {d < 4 && <line x1={sx} x2={sx} y1={it.stemUp ? yLo : yHi} y2={beamTo ? beamTo.tip : it.stemUp ? yHi - 3.4 * SP : yLo + 3.4 * SP} className="stem" />}
-      {beamTo && it.beam === 'start' && <line x1={sx} x2={beamTo.x} y1={beamTo.tip} y2={beamTo.tip} className="beam" />}
-      {d < 1 && !beamTo && <G name={d < 0.4 ? (it.stemUp ? 'flag16thUp' : 'flag16thDown') : it.stemUp ? 'flag8thUp' : 'flag8thDown'} x={sx - 0.6} y={it.stemUp ? yHi - 3.4 * SP : yLo + 3.4 * SP} />}
+      {d < 4 && <line x1={sx} x2={sx} y1={it.stemUp ? yLo : yHi} y2={tip ?? (it.stemUp ? yHi - 3.4 * SP : yLo + 3.4 * SP)} className="stem" />}
+      {d < 1 && tip === undefined && <G name={d < 0.4 ? (it.stemUp ? 'flag16thUp' : 'flag16thDown') : it.stemUp ? 'flag8thUp' : 'flag8thDown'} x={sx - 0.6} y={it.stemUp ? yHi - 3.4 * SP : yLo + 3.4 * SP} />}
       {tieX !== undefined && it.notes.map((n, i) => {
         const y = top + n.y * SP + (it.stemUp ? 7 : -7);
         const x1 = x + HEAD + 1, x2 = tieX - 1, bend = it.stemUp ? 6 : -6;

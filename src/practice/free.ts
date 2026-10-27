@@ -9,7 +9,7 @@
 import type { Step } from '../music/steps';
 import { parseChord, type Chord, type ChordSpan } from '../music/chordbook';
 import { isChordTone, spanAt } from '../music/melodyvoice';
-import type { WaitFeedback } from './grader';
+import { TimedGrader, type WaitFeedback, type TimedFeedback, type TimedResult } from './grader';
 
 export type FreeResult = {
   mode: 'free'; steps: number; clean: number; errors: number; errorsPerStep: number[]; wrongNotes: number[]; seconds: number; score: number;
@@ -70,7 +70,8 @@ export class FreeGrader {
     const mel = this.melOf(i);
     const c = this.chords[i];
     if (note === mel) {
-      if (held.some((m) => m > mel)) this.topErr[i]++;
+      const prevMel = [i - 1, i - 2].filter((k) => k >= 0 && this.steps[k].notes.length).map((k) => this.melOf(k));
+      if (held.some((m) => m > mel && !prevMel.includes(m))) this.topErr[i]++;
       this.under(i, held);
       this.last = { step: i, at: time };
       this.idx++;
@@ -112,4 +113,90 @@ export function freeLine(r: FreeResult): string {
   const e = [r.errors - r.topErrors > 0 ? `코드 밖 음 ${r.errors - r.topErrors}번` : '', r.topErrors ? `멜로디가 맨 위가 아닌 곳 ${r.topErrors}번` : ''].filter(Boolean).join(' · ');
   const tip = r.harmTotal && r.harmFull < r.harmTotal * 0.6 ? ' 코드가 바뀌는 음에서는 멜로디 아래에 코드 음 두 개를 같이 눌러 봐요.' : '';
   return [h, e].filter(Boolean).join(' · ') + '.' + tip;
+}
+
+/* ─────────────── 박자 맞춰 자유 반주 ─────────────── */
+
+export type FreeHarm = { harmTotal: number; harmFull: number; harmHalf: number; topErrors: number };
+
+/**
+ * 박자 맞춰 자유 반주: 멜로디는 박자까지 채점(TimedGrader 그대로), 그 밖의 음은
+ * 그때 코드의 음(코드가 바뀌는 곳 앞뒤 window 안은 두 코드 다 허용)이면 화음, 아니면 틀린 음.
+ * 코드가 바뀌는 멜로디 음(코드 음일 때) 앞뒤 window 안에 그 아래 코드 음이 둘 이상이면 ●.
+ */
+export class FreeTimedGrader extends TimedGrader {
+  chordsAt: { beat: number; end: number; c: Chord }[];
+  harmStep: number[];
+  harmSets = new Map<number, Set<number>>();
+  topErrors = 0;
+
+  constructor(steps: Step[], bpm: number, t0: number, spans: ChordSpan[]) {
+    super(steps, bpm, t0);
+    this.chordsAt = spans.map((s) => ({ beat: s.beat, end: s.beat + s.dur, c: parseChord(s.name) })).filter((x): x is { beat: number; end: number; c: Chord } => !!x.c);
+    // 코드가 바뀌는 첫 멜로디 음 (쉼표면 그다음 음), 멜로디가 그 코드 음일 때
+    this.harmStep = [];
+    for (const ch of this.chordsAt) {
+      const i = steps.findIndex((s) => s.notes.length > 0 && s.beat >= ch.beat - 1e-6 && s.beat < ch.end - 1e-6);
+      if (i >= 0 && Math.abs(steps[i].beat - ch.beat) < 1 + 1e-6 && isChordTone(this.mel(i), ch.c) && !this.harmStep.includes(i)) this.harmStep.push(i);
+    }
+  }
+
+  mel(i: number): number { return Math.max(...this.steps[i].notes.map((n) => n.midi)); }
+  private chordsNear(time: number): Chord[] {
+    const b0 = (time - this.window - this.t0) / this.spb, b1 = (time + this.window - this.t0) / this.spb;
+    return this.chordsAt.filter((x) => x.beat < b1 && x.end > b0).map((x) => x.c);
+  }
+
+  /** held: 지금 누르고 있는 음 (멜로디보다 높은 음이 있으면 맨 위 아님) */
+  noteOnFree(note: number, time: number, held: number[]): TimedFeedback | { kind: 'harm'; note: number } {
+    const f = this.noteOn(note, time);
+    if (f.kind === 'match') {
+      // 앞 멜로디 음을 아직 누르고 있는 것(레가토)은 괜찮음
+      const prevMel = [f.exp.step - 1, f.exp.step - 2].filter((i) => i >= 0 && this.steps[i].notes.length).map((i) => this.mel(i));
+      if (held.some((m) => m > note && !prevMel.includes(m))) this.topErrors++;
+      // 멜로디보다 먼저 누른 화음 음
+      this.recordHarm(f.exp.step, held.filter((m) => m < note));
+      return f;
+    }
+    const cs = this.chordsNear(time);
+    if (!cs.some((c) => isChordTone(note, c))) return f;
+    this.extras.pop();
+    // 가까운 "코드가 바뀌는 음"에 화음으로
+    let best = -1, bd = Infinity;
+    for (const i of this.harmStep) { const d = Math.abs(time - (this.t0 + this.steps[i].beat * this.spb)); if (d <= this.window && d < bd) { bd = d; best = i; } }
+    if (best >= 0) this.recordHarm(best, [note]);
+    return { kind: 'harm', note };
+  }
+
+  private recordHarm(step: number, notes: number[]) {
+    if (!this.harmStep.includes(step)) return;
+    const mel = this.mel(step);
+    const ch = this.chordsAt.find((x) => this.steps[step].beat >= x.beat - 1e-6 && this.steps[step].beat < x.end - 1e-6);
+    if (!ch) return;
+    const set = this.harmSets.get(step) ?? new Set<number>();
+    for (const n of notes) if (n < mel && isChordTone(n, ch.c)) set.add(n);
+    this.harmSets.set(step, set);
+  }
+
+  finishFree(): TimedResult & { free: FreeHarm } {
+    const r = this.finish();
+    const harmFull = this.harmStep.filter((i) => (this.harmSets.get(i)?.size ?? 0) >= 2).length;
+    const harmHalf = this.harmStep.filter((i) => (this.harmSets.get(i)?.size ?? 0) === 1).length;
+    const harmTotal = this.harmStep.length;
+    const melPct = r.total ? (r.good + 0.6 * (r.early + r.late)) / r.total : 0;
+    const harmPct = harmTotal ? (harmFull + 0.5 * harmHalf) / harmTotal : 1;
+    const score = Math.max(0, Math.round(60 * melPct + 40 * harmPct - Math.min(20, (r.extra + this.topErrors) * 3)));
+    return { ...r, score, free: { harmTotal, harmFull, harmHalf, topErrors: this.topErrors } };
+  }
+}
+
+export function freeTimedLine(r: TimedResult & { free: FreeHarm }): string {
+  const f = r.free;
+  const parts = [
+    f.harmTotal ? `코드가 바뀌는 ${f.harmTotal}곳 중 화음 ● ${f.harmFull}곳${f.harmHalf ? ` · ◐ ${f.harmHalf}곳` : ''}` : '',
+    `멜로디 딱 맞음 ${r.good}/${r.total}`,
+    r.extra ? `코드 밖 음 ${r.extra}번` : '',
+    f.topErrors ? `멜로디가 맨 위가 아닌 곳 ${f.topErrors}번` : '',
+  ].filter(Boolean);
+  return parts.join(' · ') + '.';
 }
