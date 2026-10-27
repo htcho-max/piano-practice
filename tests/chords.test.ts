@@ -80,3 +80,11 @@ describe('코드 붙이기 (기타 앱에서 가져옴)', () => {
     expect(r.spans.some((s) => s.name === 'G' || s.name === 'G7')).toBe(true);
   });
 });
+
+describe('마디 글: 박 단위', () => {
+  it('마지막 박만 다른 코드면 박마다 적음', () => {
+    const sp = parseBarsText('C . . C/B | Am', 4).spans;
+    expect(sp.map((x) => `${x.name}@${x.beat}/${x.dur}`)).toEqual(['C@0/3', 'C/B@3/1', 'Am@4/4']);
+    expect(barsText(sp, 4, 2)).toBe('C . . C/B | Am');
+  });
+});

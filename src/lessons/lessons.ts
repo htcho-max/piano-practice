@@ -3,6 +3,7 @@ import { accompany, parseBarsText, PATTERNS, type ChordSpan, type PatternId } fr
 import { SCALES, scaleSteps, arpeggioSteps, hanon1 } from '../music/scales';
 import { arrangeBoth, voiceItems, type TwoLevel, type VoiceItem } from '../music/melodyvoice';
 import { findBuiltin } from '../songs/builtin';
+import { colorize, type ColorOpts } from '../music/chordcolor';
 import { onlyHand, totalBeats } from '../music/steps';
 
 /** free = 자유 반주 (멜로디 + 코드 악보, 아래는 마음대로 코드 음) */
@@ -40,11 +41,13 @@ const tech = (id: string, title: string, text: string, steps: Step[], o: { bpm?:
   ({ kind: 'play', id, title, text, src: '', steps, bpm: o.bpm ?? 66, beats: 4, modes: o.modes ?? ['wait', 'timed'], sheet: true, fifths: o.fifths });
 const SC = (pc: number, minor = false) => SCALES.find((x) => x.pc === pc && x.kind === (minor ? 'minor' : 'major'))!;
 /** 기본 곡 멜로디 + 코드 → 양손 반주 단계 (free = 자유 반주: 멜로디 + 코드만) */
-const arranged = (id: string, title: string, text: string, songKey: string, level: TwoLevel | 'free', o: { bpm?: number } = {}): Exercise => {
+const arranged = (id: string, title: string, text: string, songKey: string, level: TwoLevel | 'free', o: { bpm?: number; color?: ColorOpts } = {}): Exercise => {
   const s = findBuiltin(songKey)!;
   const right = onlyHand(s.steps, 'R');
-  const steps = level === 'free' ? right : arrangeBoth(right, s.chords!, level, s.beats, totalBeats(s.steps));
-  return { kind: 'play', id, title, text, src: '', steps, bpm: o.bpm ?? s.bpm, beats: s.beats, modes: level === 'free' ? ['free'] : ['wait', 'timed'], sheet: true, chords: s.chords, fifths: s.fifths };
+  const mel = right.flatMap((st) => st.notes.map((n) => ({ beat: st.beat, len: n.len ?? st.dur, midi: n.midi })));
+  const chords = o.color ? colorize(s.chords!, o.color, s.beats, s.fifths ?? 0, mel) : s.chords!;
+  const steps = level === 'free' ? right : arrangeBoth(right, chords, level, s.beats, totalBeats(s.steps));
+  return { kind: 'play', id, title, text, src: '', steps, bpm: o.bpm ?? s.bpm, beats: s.beats, modes: level === 'free' ? ['free'] : ['wait', 'timed'], sheet: true, chords, fifths: s.fifths, pedalAt: chords.map((c) => c.beat) };
 };
 const voice = (id: string, title: string, text: string, chordList: string[]): Exercise => ({ kind: 'voice', id, title, text, items: voiceItems(chordList) });
 const read = (id: string, title: string, text: string, level: string, count = 20): Exercise => ({ kind: 'read', id, title, text, level, count });
@@ -426,6 +429,22 @@ export const LESSONS: Lesson[] = [
       voice('l27-v', '사장조 보이싱: G D Em C', '찬양에 많은 G 장조. D/F# 처럼 슬래시 코드는 왼손으로 / 뒤 음을 쳐도 돼요.', ['G', 'D', 'Em', 'C', 'G', 'D/F#', 'Em', 'C']),
       arranged('l27-gr4', '나 같은 죄인: 왼손 펼침 + 화음', '③의 오른손에 왼손 근음-5음-옥타브 펼친화음.', 'grace', 4, { bpm: 60 }),
       arranged('l27-free', '나 같은 죄인: 자유 반주', '멜로디와 코드만 보고 내 화음으로. 코드가 바뀌는 음마다 멜로디 아래 두 음 이상이면 ●.', 'grace', 'free', { bpm: 60 }),
+    ],
+  },
+  {
+    id: 'l28', n: 28, title: '리듬 반주와 찬양 색채', goal: '긴 음을 리듬으로 채우고, 코드에 찬양다운 색 더하기',
+    body: [
+      '멜로디가 길게 끌리거나 쉬는 곳에서 반주가 멈추면 노래가 비어 들려요. **⑤ 리듬 반주**는 그런 박마다 오른손 화음을 다시 쳐요 (멜로디 음도 맨 위에서 같이). 왼손은 박자에 따라 리듬: **4/4 는 8비트** (근음 ♩. → 5음 ♪ → 옥타브 𝅗𝅥), **3/4 는 왈츠** (왼손 첫 박, 오른손 둘·셋째 박), **6/8 은 점4분 둘** (오른손 8분 "쿵-짝-짝").',
+      '**sus4 → 3**: 끝맺기 전 V 코드(G 장조면 D)를 Dsus4(레·솔·라)로 걸었다가 D(레·파♯·라)로 풀어요. 4음이 3음으로 반음 내려가며 "아멘" 같은 해결감이 나요.',
+      '**add2**: I·IV 같은 장3화음에 2음을 더하면(G2 = 솔·라·시·레) 찬양 반주 특유의 열린 소리가 나요. 2음과 3음이 붙어도 괜찮은 코드예요.',
+      '**지나가는 베이스**: 베이스가 3도 떨어진 코드 사이(C → Am)에 한 음을 끼워 C → C/B → Am 처럼 계단으로 내려가요. 마지막 박에 왼손만 바꾸면 돼요.',
+      '곡 탭 "코드로 반주 만들기"의 **찬양 색 더하기 → 코드에 입히기**로 내 곡 코드에 이 색들을 입힐 수 있어요. 입힌 코드는 글로 보이니 마음에 안 드는 곳은 고쳐 쓰세요.',
+    ],
+    tips: ['리듬 반주는 오른손 화음을 가볍게, 멜로디(5번)만 조금 더 세게', 'sus4 → 3 은 4번 손가락이 3번으로 반음 내려오는 느낌'],
+    exercises: [
+      voice('l28-v', 'sus4 와 add2 보이싱 (사장조)', '2음·sus4 가 섞인 진행. Dsus4 → D 에서 솔이 파♯으로 내려오는 걸 들어 봐요.', ['G2', 'Dsus4', 'D', 'Em7', 'C2', 'Dsus4', 'D', 'G2']),
+      arranged('l28-gr5', '나 같은 죄인: 왈츠 리듬 + 색채', '왼손 첫 박, 오른손 둘·셋째 박 화음. sus4 → 3·지나가는 베이스를 입혔어요.', 'grace', 5, { bpm: 60, color: { sus: true, add2: true, walk: true } }),
+      arranged('l28-joy5', '환희의 송가: 8비트', '왼손 근음 ♩. → 5음 ♪ → 옥타브 𝅗𝅥. 멜로디가 긴 곳은 오른손 화음으로 채워요.', 'joy', 5, { bpm: 72, color: { sus: true, add2: false, walk: true } }),
     ],
   },
 ];

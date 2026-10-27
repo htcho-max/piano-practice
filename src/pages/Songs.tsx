@@ -12,6 +12,7 @@ import { barCount, onlyHand, totalBeats } from '../music/steps';
 import { harmonize, type MelNote } from '../music/harmonize';
 import { parseBarsText, barsText, leftHand, mergeHands, LEFT_KINDS, type LeftKind } from '../music/chordbook';
 import { arrangeBoth, TWO_LEVELS, type TwoLevel } from '../music/melodyvoice';
+import { colorize, COLOR_OPTS, type ColorOpts } from '../music/chordcolor';
 import type { Mode } from '../lessons/lessons';
 
 /** 코드가 있는 곡은 자유 반주도 */
@@ -39,12 +40,23 @@ function ArrangeCard({ piece, fifths, onMade }: { piece: Piece; fifths?: number;
   const [text, setText] = useState(() => (piece.chords?.length ? barsText(piece.chords, piece.beats, bars) : ''));
   const [kind, setKind] = useState<Kind>('two1');
   const [msg, setMsg] = useState<string | null>(null);
+  const [col, setCol] = useState<ColorOpts>({ sus: true, add2: false, walk: true });
   const auto = () => {
     const mel = melodyOf(piece);
     if (!mel.length) { setMsg('오른손 멜로디가 없어요.'); return; }
     const r = harmonize(mel, { beatsPerBar: piece.beats, fifths });
     setText(barsText(r.spans, piece.beats, bars));
     setMsg(`${r.key.name} 조로 보고 코드를 붙였어요. 마음에 안 드는 마디는 고쳐 쓰세요.`);
+  };
+  /** 찬양 색채를 코드 글에 입힘 (고칠 수 있게 글로 보여 줌) */
+  const paint = () => {
+    const { spans, errors } = parseBarsText(text, piece.beats);
+    if (errors.length || !spans.length) { setMsg(errors.length ? `못 읽은 코드: ${errors.join(', ')}` : '코드를 먼저 적어 주세요.'); return; }
+    const mel = melodyOf(piece).filter((m): m is { midi: number; beat: number; dur: number } => m.midi !== null).map((m) => ({ beat: m.beat, len: m.dur, midi: m.midi }));
+    const out = colorize(spans, col, piece.beats, fifths ?? 0, mel);
+    const t = barsText(out, piece.beats, bars);
+    setMsg(t === text ? '바꿀 곳이 없었어요.' : '색을 입혔어요. 마음에 안 드는 곳은 글에서 고쳐 쓰세요.');
+    setText(t);
   };
   const make = async () => {
     const { spans, errors } = parseBarsText(text, piece.beats);
@@ -53,12 +65,12 @@ function ArrangeCard({ piece, fifths, onMade }: { piece: Piece; fifths?: number;
     const right = onlyHand(piece.steps, 'R');
     const total = Math.max(totalBeats(piece.steps), bars * piece.beats);
     const lv = isTwo(kind) ? (Number(kind.slice(3)) as TwoLevel) : null;
-    const steps = lv ? arrangeBoth(right, spans, lv, piece.beats, total) : mergeHands(right, leftHand(spans, kind as LeftKind, piece.beats), total);
-    const label = lv ? `양손 ${'①②③④'[lv - 1]}` : LEFT_KINDS.find((x) => x.id === kind)!.title;
+    const steps = lv ? arrangeBoth(right, spans, lv, piece.beats, total, piece.timeDen) : mergeHands(right, leftHand(spans, kind as LeftKind, piece.beats), total);
+    const label = lv ? `양손 ${'①②③④⑤'[lv - 1]}` : LEFT_KINDS.find((x) => x.id === kind)!.title;
     const song: Song = { title: `${piece.title.replace(/ · 반주\(.*\)$/, '')} · 반주(${label})`, beats: piece.beats, timeNum: piece.timeNum ?? piece.beats, timeDen: piece.timeDen ?? 4, bpm: piece.bpm, steps, origin: 'import', createdAt: Date.now(), chords: spans, pedalAt: spans.map((s) => s.beat), fifths };
     const id = await db.songs.add(song);
     notify();
-    onMade({ piece: pieceOfSong({ ...song, id }), note: lv ? `멜로디가 맨 위인 양손 반주 ${'①②③④'[lv - 1]} (내 곡에 저장됨)` : '오른손 멜로디 + 왼손 반주 (내 곡에 저장됨)', fifths });
+    onMade({ piece: pieceOfSong({ ...song, id }), note: lv ? `멜로디가 맨 위인 양손 반주 ${'①②③④⑤'[lv - 1]} (내 곡에 저장됨)` : '오른손 멜로디 + 왼손 반주 (내 곡에 저장됨)', fifths });
   };
   if (!openCard) return <button className="secondary wide" onClick={() => setOpenCard(true)} data-testid="arrange-open">🎹 코드로 반주 만들기 (양손·왼손)</button>;
   return (
@@ -67,6 +79,14 @@ function ArrangeCard({ piece, fifths, onMade }: { piece: Piece; fifths?: number;
       <p className="hint">마디마다 코드를 <b>|</b> 로 나눠 적어요. 한 마디에 둘이면 띄어 쓰기 (<b>Am F</b>), 앞 마디 그대로는 <b>%</b>. 찬양 악보의 코드를 그대로 옮겨 적으면 돼요.</p>
       <textarea className="chord-text" rows={3} value={text} onChange={(e) => setText(e.target.value)} placeholder="C | G | Am F | G" data-testid="arrange-text" />
       <div className="row"><button className="secondary" onClick={auto} data-testid="arrange-auto">멜로디로 코드 자동 붙이기</button></div>
+      <div className="arr-group">
+        <span className="muted small">찬양 색 더하기</span>
+        <div className="chips">
+          {COLOR_OPTS.map((x) => <label key={x.id} className="chip mini check" title={x.note}><input type="checkbox" checked={col[x.id]} onChange={(e) => setCol({ ...col, [x.id]: e.target.checked })} data-testid={`col-${x.id}`} />{x.title}</label>)}
+          <button className="secondary mini" onClick={paint} data-testid="arrange-paint">코드에 입히기</button>
+        </div>
+        <p className="hint small">{COLOR_OPTS.filter((x) => col[x.id]).map((x) => x.note).join(' · ') || '고른 색이 없어요'}</p>
+      </div>
       <div className="arr-group">
         <span className="muted small">양손 — 멜로디가 맨 위인 화음 (단계별로)</span>
         <div className="chips">{TWO_LEVELS.map((x) => <button key={x.id} className={`chip mini${kind === `two${x.id}` ? ' on' : ''}`} onClick={() => setKind(`two${x.id}`)} title={x.note} data-testid={`two-${x.id}`}>{x.title}</button>)}</div>

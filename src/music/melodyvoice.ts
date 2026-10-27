@@ -7,20 +7,27 @@
  *  2. 멜로디 + 한 음       : 중요한 멜로디 음 아래 3도·6도 하나
  *  3. 멜로디가 맨 위 화음  : 중요한 멜로디 음 아래 코드 음 둘 (3음 화음), 왼손 근음+5음
  *  4. 화음 + 왼손 펼침     : 3단계 오른손 + 왼손 근음-5음-옥타브 펼친화음
+ *  5. 리듬 반주           : 멜로디가 길거나 쉬는 박에 오른손 화음(멜로디 다시 침)을 박마다 채우고,
+ *                            왼손은 리듬 (4/4 8비트 ♩.♪𝅗𝅥, 3/4 왈츠, 6/8 점4분 둘)
  *
  * "중요한 음" = 코드가 바뀌는 첫 음, 마디 첫 박·가운데 박, 한 박 이상 긴 음 — 그 음이 코드 음일 때만.
  * 경과음(코드 밖 음)은 멜로디만 치고, 아래 음은 그 멜로디 음 길이만큼 (이어지는 소리는 페달로).
  */
-import { parseChord, bassNote, type Chord, type ChordSpan } from './chordbook';
+import { parseChord, bassNote, voicing, type Chord, type ChordSpan } from './chordbook';
 import type { PNote, Step } from './steps';
 
-export type TwoLevel = 1 | 2 | 3 | 4;
+export type TwoLevel = 1 | 2 | 3 | 4 | 5;
 export const TWO_LEVELS: { id: TwoLevel; title: string; note: string }[] = [
   { id: 1, title: '① 멜로디 + 베이스', note: '오른손은 멜로디만, 왼손은 코드의 베이스 한 음. 양손 반주의 첫걸음.' },
   { id: 2, title: '② 멜로디 + 한 음', note: '중요한 멜로디 음 아래에 코드 음 하나(3도·6도). 소리가 두꺼워지기 시작해요.' },
   { id: 3, title: '③ 멜로디 맨 위 화음', note: '멜로디 아래 코드 음 둘 → 오른손 3음 화음. 왼손은 근음+5음.' },
   { id: 4, title: '④ 화음 + 왼손 펼침', note: '③의 오른손 + 왼손 근음-5음-옥타브 펼친화음. 찬양 반주에 가까운 소리.' },
+  { id: 5, title: '⑤ 리듬 반주', note: '멜로디가 길거나 쉬는 곳을 오른손 화음으로 박마다 채우고(멜로디 음도 다시), 왼손은 리듬 — 4/4 는 8비트, 3/4 는 왈츠, 6/8 은 점4분 둘.' },
 ];
+
+/** 박자 종류: 6/8 처럼 8분음표 셋 묶음이면 compound */
+export type Meter = { beats: number; compound: boolean };
+const meterOf = (beats: number, timeDen?: number): Meter => ({ beats, compound: timeDen === 8 && beats % 1.5 === 0 });
 
 const EPS = 1e-6;
 const pcOf = (m: number) => ((m % 12) + 12) % 12;
@@ -117,7 +124,7 @@ function splitAtBars(spans: ChordSpan[], beats: number): ChordSpan[] {
 function lowBass(c: Chord): number { const b = bassNote(c); return b > 47 ? b - 12 : b; }
 
 /** 왼손 */
-function leftPart(spans: ChordSpan[], level: TwoLevel, beats: number): { beat: number; notes: PNote[] }[] {
+function leftPart(spans: ChordSpan[], level: TwoLevel, beats: number, compound = false): { beat: number; notes: PNote[] }[] {
   const out: { beat: number; notes: PNote[] }[] = [];
   for (const sp of splitAtBars(spans, beats)) {
     const c = parseChord(sp.name);
@@ -134,6 +141,25 @@ function leftPart(spans: ChordSpan[], level: TwoLevel, beats: number): { beat: n
     const up = (from: number, gap: number) => { let m = from + gap; while (!c.pcs.includes(pcOf(m))) m++; return m; };
     const t2 = slash ? up(b, 5) : b + 7;
     const t3 = slash ? up(t2, 3) : b + 12;
+    if (level === 5) {
+      // 마디 안 자리(박)와 길이: 4/4 = 근음♩. 5음♪ 옥타브𝅗𝅥, 3/4 = 근음 한 마디, 6/8 = 근음 점4분 · 5음 점4분
+      const pat: [number, number, number, number][] = compound ? [[0, 1.5, b, 5], [1.5, 1.5, t2, 2]]
+        : beats % 2 === 0 ? [[0, 1.5, b, 5], [1.5, 0.5, t2, 2], [2, 2, t3, 1]] : [[0, beats, b, 5]];
+      const bar0 = Math.floor(sp.beat / beats + EPS) * beats;
+      const end = sp.beat + sp.dur;
+      let first = true;
+      for (let rep = 0; bar0 + rep * (compound ? 3 : beats) < end - EPS; rep++) {
+        for (const [at, len, m, f] of pat) {
+          const t = bar0 + rep * (compound ? 3 : beats) + at;
+          if (t + len <= sp.beat + EPS || t >= end - EPS) continue;
+          const s0 = Math.max(t, sp.beat);
+          // 코드가 패턴 중간에서 시작하면 그 자리에 근음부터
+          out.push({ beat: s0, notes: [n(first ? b : m, Math.min(t + len, end) - s0, first ? 5 : f)] });
+          first = false;
+        }
+      }
+      continue;
+    }
     const seq: [number, number][] = beats % 3 === 0 ? [[b, 5], [t2, 2], [t3, 1]] : [[b, 5], [t2, 2], [t3, 1], [t2, 2]];
     for (let t = sp.beat, k = 0; t < sp.beat + sp.dur - EPS; t += 1, k++) {
       const [m, f] = seq[k % seq.length];
@@ -158,9 +184,10 @@ function important(m: Mel, sp: ChordSpan, beats: number): boolean {
  * 오른손 멜로디 + 코드 → 양손 반주 칸.
  * total: 곡 전체 박 수 (마지막 마디 끝까지)
  */
-export function arrangeBoth(right: Step[], spans: ChordSpan[], level: TwoLevel, beats: number, total: number): Step[] {
+export function arrangeBoth(right: Step[], spans: ChordSpan[], level: TwoLevel, beats: number, total: number, timeDen?: number): Step[] {
   const mel = melodyNotes(right);
-  const left = leftPart(spans, level, beats);
+  const meter = meterOf(beats, timeDen);
+  const left = leftPart(spans, level, beats, meter.compound);
   // 오른손 아래 음은 그때 왼손 가장 높은 음보다 위 (G3 이상)
   const floorAt = (b0: number, b1: number) => {
     let top = 0;
@@ -184,11 +211,45 @@ export function arrangeBoth(right: Step[], spans: ChordSpan[], level: TwoLevel, 
   const ev = new Map<number, PNote[]>();
   const key = (b: number) => Math.round(b * 1000) / 1000;
   const add = (b: number, ns: PNote[]) => ev.set(key(b), [...(ev.get(key(b)) ?? []), ...ns]);
-  mel.forEach((m) => add(m.beat, [{ ...m.note, len: m.len }]));
+  // ⑤ 리듬 채우기: 멜로디 새 음이 없는 박(6/8 은 8분 2·3·5·6번째)에 오른손 화음
+  const fills: { beat: number; notes: number[]; c: Chord; mi: number }[] = [];
+  if (level === 5) {
+    const grid: number[] = [];
+    for (let b = 0; b < total - EPS; b += meter.compound ? 0.5 : 1) if (!(meter.compound ? [0, 1.5] : beats % 2 ? [0] : []).includes(Math.round((b % beats) * 1000) / 1000)) grid.push(b);
+    let prevV: number[] | undefined;
+    for (const g of grid) {
+      if (mel.some((o) => Math.abs(o.beat - g) < EPS)) continue;
+      const sp = spanAt(spans, g);
+      const c = sp && parseChord(sp.name);
+      if (!c) continue;
+      const mi = mel.findIndex((o) => o.beat < g - EPS && o.beat + o.len > g + EPS);
+      if (mi >= 0) {
+        const mm = mel[mi].note.midi;
+        if (!isChordTone(mm, c)) continue; // 걸림음 위에는 채우지 않음
+        const under = underVoices(mm, c, 2, floorAt(g, g + 1));
+        if (!under.length) continue;
+        fills.push({ beat: g, notes: [...under, mm], c, mi });
+      } else {
+        // 멜로디가 쉬는 곳: 가까운 자리 3화음 (G3~C5)
+        const v = voicing(c, prevV, Math.max(55, floorAt(g, g + 1)), 72).slice(0, 3);
+        prevV = v;
+        fills.push({ beat: g, notes: v, c, mi: -1 });
+      }
+    }
+  }
+  // 채움 화음이 들어가면 멜로디 음은 거기까지 (채움 화음이 멜로디를 다시 침)
+  const melLen = mel.map((m, i) => { const f = fills.find((x) => x.mi === i); return f ? f.beat - m.beat : m.len; });
+  mel.forEach((m, i) => add(m.beat, [{ ...m.note, len: melLen[i] }]));
+  fills.forEach((f, k) => {
+    const nextOn = Math.min(...[...mel.map((o) => o.beat), ...fills.map((x) => x.beat)].filter((b) => b > f.beat + EPS), total);
+    const end = f.mi >= 0 ? Math.min(nextOn, mel[f.mi].beat + mel[f.mi].len) : Math.min(nextOn, f.beat + (meter.compound ? 0.5 : 1));
+    void k;
+    add(f.beat, f.notes.map((m) => ({ midi: m, hand: 'R' as const, len: end - f.beat, ...spellFor(m, f.c) })));
+  });
   // 아래 음은 멜로디 음과 같은 길이 (악보에 보이는 대로 치기 — 이어지는 소리는 페달로)
   hs.forEach((h) => {
     const m = mel[h.i];
-    add(m.beat, h.under.map((u) => ({ midi: u, hand: 'R' as const, len: m.len, ...spellFor(u, h.c) })));
+    add(m.beat, h.under.map((u) => ({ midi: u, hand: 'R' as const, len: melLen[h.i], ...spellFor(u, h.c) })));
   });
   for (const e of left) add(e.beat, e.notes);
   const beatsSorted = [...ev.keys()].sort((a, b) => a - b);

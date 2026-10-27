@@ -231,11 +231,17 @@ export function barsText(spans: ChordSpan[], beats: number, bars: number): strin
     if (!starts.length) out.push(inBar[0]?.name ?? '.');
     else if (starts.length === 1 && starts[0].beat <= s + 1e-6) out.push(starts[0].name);
     else {
-      // 반 마디 단위로
       const half = beats / 2;
       const at = (t: number) => (spans.find((x) => t >= x.beat - 1e-6 && t < x.beat + x.dur - 1e-6)?.name ?? '.');
-      const a = at(s), c = at(s + half);
-      out.push(a === c ? a : `${a} ${c}`);
+      if (starts.every((x) => Math.abs(x.beat - s) < 1e-6 || Math.abs(x.beat - s - half) < 1e-6)) {
+        // 반 마디 단위로
+        const a = at(s), c = at(s + half);
+        out.push(a === c ? a : `${a} ${c}`);
+      } else {
+        // 박마다 (이어지는 박은 '.')
+        const n = Math.round(beats);
+        out.push(Array.from({ length: n }, (_, k) => { const st = starts.find((x) => Math.abs(x.beat - s - k) < 1e-6); return st ? st.name : k === 0 ? at(s) : '.'; }).join(' '));
+      }
     }
   }
   return out.join(' | ');

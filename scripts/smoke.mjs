@@ -453,7 +453,7 @@ try {
     }
     await tab(page, '배우기');
     if (await page.getByRole('button', { name: /^‹/ }).first().isVisible().catch(() => false)) await page.getByRole('button', { name: /^‹/ }).first().click();
-    ok(await page.getByTestId('lesson-27').isVisible(), '27과까지');
+    ok(await page.getByTestId('lesson-28').isVisible(), '28과까지');
     await page.getByTestId('lesson-26').click();
     await page.getByTestId('ex-l26-v1').click();
     for (let i = 0; i < 8; i++) {
@@ -471,6 +471,35 @@ try {
     await page.getByTestId('voice-chord').waitFor();
     await page.screenshot({ path: 'scripts/shot-voice.png', fullPage: true });
     ok((await text(page.getByTestId('voice-chord'))).length > 0, '코드 탭 보이싱');
+
+    // 17. v0.9 — 리듬 반주 ⑤, 찬양 색채
+    await tab(page, '곡');
+    if (await page.getByRole('button', { name: /^‹ 곡 목록/ }).isVisible().catch(() => false)) await page.getByRole('button', { name: /^‹ 곡 목록/ }).click();
+    await page.getByTestId('song-grace').click();
+    await page.getByTestId('arrange-open').click();
+    await page.getByTestId('col-add2').check();
+    await page.getByTestId('arrange-paint').click();
+    {
+      const t = await page.getByTestId('arrange-text').inputValue();
+      ok(t.includes('Dsus4') && t.includes('G2'), `색 입힌 코드: ${t}`);
+    }
+    await page.getByTestId('two-5').click();
+    await page.getByTestId('arrange-make').click();
+    await page.getByTestId('song-title').filter({ hasText: '반주(양손 ⑤)' }).waitFor({ timeout: 3000 });
+    ok((await page.locator('[data-testid="chord-sym"]').allTextContents()).includes('Dsus4'), '⑤ 악보에 Dsus4');
+    await page.screenshot({ path: 'scripts/shot-rhythm.png', fullPage: true });
+    await page.getByTestId('wait-hint').waitFor(); await wait(page, 200);
+    {
+      // 기다려 주기로 처음 몇 칸: 칠 건반(now)을 눌러 넘어가는지
+      for (let i = 0; i < 6; i++) {
+        const keys = await page.locator('.key.mk-now').evaluateAll((els) => els.map((e) => Number(e.dataset.midi)));
+        await page.evaluate((ks) => ks.forEach((n) => window.__on(n)), keys);
+        await wait(page, 60);
+        await page.evaluate((ks) => ks.forEach((n) => window.__off(n)), keys);
+        await wait(page, 60);
+      }
+      ok((await text(page.getByTestId('wait-hint'))).includes('준비되면') || (await text(page.getByTestId('wait-hint'))).includes('틀린 건반 0'), `⑤ 기다려 주기 진행 ${await text(page.getByTestId('wait-hint'))}`);
+    }
 
     // 8. 오늘·기록
     await tab(page, '오늘');

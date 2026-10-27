@@ -258,3 +258,6 @@ h2 { margin: 0; font-size: 20px; }
 .voice-top b { font-size: 26px; }
 .segmented.subtabs { display: grid; grid-template-columns: repeat(3, 1fr); }
 @media (min-width: 640px) { .segmented.subtabs { grid-template-columns: repeat(6, 1fr); } }
+.chip.check { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+.chip.check input { margin: 0; }
+.hint.small { font-size: 12px; }

@@ -131,3 +131,48 @@ describe('박자 맞춰 자유 반주', () => {
     expect(r.score).toBe(Math.round(60 + 40 * 0.75 - 3));
   });
 });
+
+import { colorize } from '../src/music/chordcolor';
+describe('찬양 색채', () => {
+  const sp = (t: string) => parseBarsText(t, 4).spans;
+  const names = (x: { name: string; beat: number }[]) => x.map((s) => `${s.name}@${s.beat}`).join(' ');
+  it('sus4 → 3 는 다음 코드로 풀리는 V 에만', () => {
+    expect(names(colorize(sp('C | G | C | F'), { sus: true, add2: false, walk: false }, 4))).toBe('C@0 Gsus4@4 G@6 C@8 F@12');
+  });
+  it('add2 는 딸림이 아닌 장3화음', () => {
+    expect(names(colorize(sp('C | G | Am | F/A | G | C'), { sus: false, add2: true, walk: false }, 4))).toBe('C2@0 G2@4 Am@8 F2/A@12 G@16 C2@20');
+  });
+  it('지나가는 베이스: C → Am 사이 B, G → Em 사이 F# (사장조)', () => {
+    expect(names(colorize(sp('C | Am'), { sus: false, add2: false, walk: true }, 4))).toBe('C@0 C/B@3 Am@4');
+    expect(names(colorize(sp('G | Em'), { sus: false, add2: false, walk: true }, 4, 1))).toBe('G@0 G/F#@3 Em@4');
+    expect(names(colorize(sp('C | Em'), { sus: false, add2: false, walk: true }, 4))).toBe('C@0 C/D@3 Em@4');
+  });
+});
+
+describe('⑤ 리듬 반주', () => {
+  it('4/4: 긴 멜로디 아래 박마다 화음(멜로디 다시), 왼손 8비트', () => {
+    const st = arrangeBoth(parseSteps('R:E4/w'), parseBarsText('C', 4).spans, 5, 4, 4);
+    const r = st.map((s) => s.notes.filter((n) => n.hand === 'R').map((n) => n.midi));
+    expect(r[0]).toEqual([55, 60, 64]);
+    expect(st.filter((s) => s.notes.some((n) => n.midi === 64)).map((s) => s.beat)).toEqual([0, 1, 2, 3]);
+    expect(st.flatMap((s) => s.notes.filter((n) => n.hand === 'L').map((n) => `${n.midi}@${s.beat}`))).toEqual(['36@0', '43@1.5', '48@2']);
+  });
+  it('3/4 왈츠: 왼손 첫 박, 오른손 2·3박', () => {
+    const st = arrangeBoth(parseSteps('R:G4/h.'), parseBarsText('C', 3).spans, 5, 3, 3);
+    expect(st.map((s) => s.beat)).toEqual([0, 1, 2]);
+    expect(st[1].notes.map((n) => n.midi)).toEqual([60, 64, 67]);
+    expect(st[0].notes.filter((n) => n.hand === 'L')).toHaveLength(1);
+  });
+  it('6/8: 8분 2·3·5·6 채움, 왼손 점4분 둘', () => {
+    const st = arrangeBoth(parseSteps('R:G4/h.'), parseBarsText('C', 3).spans, 5, 3, 3, 8);
+    expect(st.map((s) => s.beat)).toEqual([0, 0.5, 1, 1.5, 2, 2.5]);
+    expect(st[3].notes.some((n) => n.hand === 'L')).toBe(true);
+  });
+});
+describe('sus4 와 멜로디', () => {
+  it('멜로디가 3음이면 sus 를 걸지 않음', () => {
+    const sp = parseBarsText('G | C', 4).spans;
+    expect(colorize(sp, { sus: true, add2: false, walk: false }, 4, 0, [{ beat: 0, len: 2, midi: 71 }])[0].name).toBe('G');
+    expect(colorize(sp, { sus: true, add2: false, walk: false }, 4, 0, [{ beat: 0, len: 2, midi: 74 }])[0].name).toBe('Gsus4');
+  });
+});
